@@ -200,6 +200,40 @@ class ReportTests(Base):
         self.assertIn("(last logged session 2026-01-03), as of 2026-01-04", stdout)
 
 
+class UpdateTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.csv = write_csv(self.dir, "export.csv", [
+            "2026-01-01,Squat,Main,true;true;true,5;5;5,65.0;75.0;85.0,1,1,",
+            "2026-01-03,Bench Press,Main,true;true;true,5;5;8,45.0;52.5;60.0,1,1,"])
+        self.out = os.path.join(self.dir, "stage")
+
+    def test_update_writes_csv_and_report(self):
+        code, stdout, _ = run_cli(self.csv, "update", "--as-of", "2026-01-04",
+                                  "--out-dir", self.out, "--min-sessions", "2")
+        self.assertEqual(code, 0)
+        self.assertIn("VALID: 2 sessions", stdout)
+        with open(self.csv, "rb") as a, open(os.path.join(self.out, "workouts.csv"), "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        report = run_cli(self.csv, "report", "--as-of", "2026-01-04")[1]
+        with open(os.path.join(self.out, "progress.md"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), report)
+
+    def test_update_refuses_session_loss(self):
+        code, _, err = run_cli(self.csv, "update", "--out-dir", self.out, "--min-sessions", "3")
+        self.assertEqual(code, 1)
+        self.assertIn("possible data loss", err)
+        self.assertFalse(os.path.exists(os.path.join(self.out, "progress.md")))
+
+    def test_update_works_piped_from_stdin(self):
+        with open(os.path.join(HERE, "five3one.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        p = subprocess.run([sys.executable, "-I", "-", self.csv, "update", "--as-of", "2026-01-04",
+                            "--out-dir", self.out], input=src, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertTrue(os.path.exists(os.path.join(self.out, "progress.md")))
+
+
 class AdherenceTests(Base):
     def test_blank_completed_is_excluded_not_counted_as_missed(self):
         p = write_csv(self.dir, "a.csv", [

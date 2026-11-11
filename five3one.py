@@ -9,6 +9,11 @@ USAGE
   python3 five3one.py CSV COMMAND [options]       (--json works anywhere)
 
 AGENT ENTRY POINTS
+  update  --out-dir DIR [--as-of YYYY-MM-DD] [--min-sessions N]
+        One call for a new export: CSV is the NEW export. Validates it, refuses if
+        it has fewer than N sessions (pass the "sessions logged" figure from the
+        current progress.md), then writes DIR/workouts.csv and DIR/progress.md.
+        Works piped from a download: curl ... | python3 -I - CSV update ...
   status  [--as-of YYYY-MM-DD] [--stale-days N]
         Start-of-session check. Last session, days since, current cycle/week
         (taken from the most recent main-lift session), main lifts done and
@@ -488,6 +493,49 @@ def cmd_report(events, args):
 
 
 # --------------------------------------------------------------------------
+# update (ingest + report in one call)
+# --------------------------------------------------------------------------
+
+def cmd_update(args):
+    """Validate a new export, refuse if it has fewer sessions than expected,
+    then write OUT_DIR/workouts.csv and OUT_DIR/progress.md."""
+    import os
+    try:
+        events, errors, warns = load_events(args.csv)
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+        return die(args, "REJECTED: cannot read %s: %s" % (args.csv, exc))
+    if errors:
+        return die(args, "REJECTED: " + "; ".join(errors[:10]))
+    if not events:
+        return die(args, "REJECTED: no data rows in %s" % args.csv)
+    n = len(session_dates(events))
+    if args.min_sessions is not None and n < args.min_sessions:
+        return die(args, "REJECTED: export has %d sessions, expected at least %d "
+                         "(possible data loss). Ask before continuing." % (n, args.min_sessions))
+    os.makedirs(args.out_dir, exist_ok=True)
+    csv_out = os.path.join(args.out_dir, "workouts.csv")
+    md_out = os.path.join(args.out_dir, "progress.md")
+    try:
+        if os.path.abspath(args.csv) != os.path.abspath(csv_out):
+            shutil.copyfile(args.csv, csv_out)
+        with open(md_out, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(build_report(events, args.as_of))
+    except OSError as exc:
+        return die(args, "cannot write output: %s" % exc)
+    dates = session_dates(events)
+    result = {"valid": True, "sessions": n, "first": str(dates[0]), "last": str(dates[-1]),
+              "wrote": [csv_out, md_out], "warnings": warns[:5]}
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print("VALID: %d sessions, %s to %s" % (n, dates[0], dates[-1]))
+        for w in warns[:5]:
+            print("  warning: " + w)
+        print("  wrote %s\n  wrote %s" % (csv_out, md_out))
+    return 0
+
+
+# --------------------------------------------------------------------------
 # ingest
 # --------------------------------------------------------------------------
 
@@ -814,6 +862,9 @@ def build_parser():
     s = sub.add_parser("report", parents=[common])
     s.add_argument("--out")
     s.add_argument("--stale-days", type=int, default=3)
+    s = sub.add_parser("update", parents=[common])
+    s.add_argument("--out-dir", required=True)
+    s.add_argument("--min-sessions", type=int)
     s = sub.add_parser("ingest", parents=[common])
     s.add_argument("--stored")
     s.add_argument("--out")
@@ -848,6 +899,8 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
     if args.command == "ingest":
         return cmd_ingest(args)
+    if args.command == "update":
+        return cmd_update(args)
     try:
         events, errors, warnings = load_events(args.csv)
     except (OSError, UnicodeDecodeError, csv.Error) as exc:
