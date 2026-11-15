@@ -109,9 +109,7 @@ def _seq_legend(edges, unit):
     cells = ['<span><i class="sw q0"></i>0</span>']
     lo = 0.0
     for i, e in enumerate(edges):
-        cells.append('<span><i class="sw q%d"></i>%s%g</span>'
-                     % (i + 1, "&gt;" if i else "&gt;0–", e) if False else
-                     '<span><i class="sw q%d"></i>%g–%g</span>' % (i + 1, round(lo, 1), round(e, 1)))
+        cells.append('<span><i class="sw q%d"></i>%g–%g</span>' % (i + 1, round(lo, 1), round(e, 1)))
         lo = e
     return '<p class="legend">%s <em>%s</em></p>' % ("".join(cells), escape(unit))
 

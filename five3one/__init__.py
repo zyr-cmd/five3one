@@ -72,6 +72,7 @@ STATE COMMANDS (no CSV argument; each bumps the state revision; save the file ba
                 "--scope all --value 0" records that nothing was limiting.
        rir:     scope = exercise name, value = reps in reserve on its hardest set.
        sore:    scope = muscle id, 0-3. Context only: soreness is not a recovery signal.
+  feedback-remove --state PATH ID   (remove a wrong entry; reopens its unknown)
   unknown-dismiss --state PATH ID
 
 ERRORS  Non-zero exit. With --json the error is {"error": "..."} on stdout.

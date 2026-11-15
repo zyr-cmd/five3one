@@ -35,9 +35,13 @@ def _rir_lookup(state):
             for f in ((state or {}).get("feedback") or []) if f["measure"] == "rir"}
 
 
+RIR_KINDS = ("joker", "bbb", "accessory")  # the kinds an effort question covers
+
+
 def set_stimulus(row, params, rir_by):
-    """(stimulus weight, parameter used). Stated reps in reserve beat the set kind."""
-    rir = rir_by.get((str(row["date"]), norm(row["key"])))
+    """(stimulus weight, parameter used). Stated reps in reserve beat the set kind for
+    joker, BBB and accessory sets; main work sets and the top set keep their own weights."""
+    rir = rir_by.get((str(row["date"]), norm(row["key"]))) if row["kind"] in RIR_KINDS else None
     if rir is not None:
         name = "rir.0_1" if rir <= 1 else "rir.2_3" if rir <= 3 else "rir.4_plus"
         return params[name], name
@@ -80,7 +84,8 @@ def muscle_status(days, params, muscle, on, strictly_before=False):
     hits = [(d, v) for d, v in days.items() if (d < on if strictly_before else d <= on)]
     if not hits:
         return {"state": UNTRAINED, "last_hit": None, "dose": None, "not_before": None,
-                "recovered_by": None, "governing_date": None, "band": None, "sets": []}
+                "recovered_by": None, "governing_date": None, "window_dose": None,
+                "band": None, "sets": []}
     last = max(d for d, _ in hits)
     not_before = recovered_by = gov = None
     gov_band = None
@@ -91,13 +96,14 @@ def muscle_status(days, params, muscle, on, strictly_before=False):
             not_before = nb
         if recovered_by is None or rb > recovered_by or (rb == recovered_by and d > gov):
             recovered_by, gov, gov_band = rb, d, band
-    if (on - last).days > RECENT_HIT_DAYS:
+    if (on - last).days > RECENT_HIT_DAYS and on >= recovered_by:
         state = UNTRAINED
     else:
         state = NOT if on < not_before else UNCERTAIN if on < recovered_by else RECOVERED
     return {"state": state, "last_hit": last, "dose": round(days[last]["dose"], 2),
             "not_before": not_before, "recovered_by": recovered_by, "governing_date": gov,
-            "band": gov_band, "sets": days[gov]["sets"]}
+            "window_dose": round(days[gov]["dose"], 2), "band": gov_band,
+            "sets": days[gov]["sets"]}
 
 
 def lens_recovery(events, emap, params, state, as_of):
@@ -108,7 +114,9 @@ def lens_recovery(events, emap, params, state, as_of):
         raise ValueError("--as-of %s is before the last logged session %s" % (as_of, last_session))
     rows, other = counted_sets(events, emap)
     doses = daily_doses(rows, params, state)
-    overrides = set(((state or {}).get("params") or {}))
+    from .params import PARAMS
+    overrides = {n for n, v in ((state or {}).get("params") or {}).items()
+                 if v != PARAMS[n]["default"]}
     muscles = []
     for m in MUSCLE_IDS:
         st = muscle_status(doses[m], params, m, as_of)
@@ -120,14 +128,30 @@ def lens_recovery(events, emap, params, state, as_of):
             "not_before": str(st["not_before"]) if st["not_before"] else None,
             "recovered_by": str(st["recovered_by"]) if st["recovered_by"] else None,
             "window_from_session": str(st["governing_date"]) if st["governing_date"] else None,
-            "band": st["band"], "multiplier": params["k"] * params["mult." + m],
+            "window_dose": st["window_dose"], "band": st["band"], "multiplier": params["k"] * params["mult." + m],
             "tuning": "adjusted" if ({"k", "mult." + m} & overrides) else "default",
             "sets": st["sets"]})
     res = {"lens": "recovery", "as_of": str(as_of), "last_session": str(last_session),
            "k": params["k"], "muscles": muscles, "uncounted_other_sets": other,
            "next_session": next_session(events, emap, doses, params, last_session),
-           "tally": prediction_tally(rows, doses, params, state)}
+           "tally": prediction_tally(rows, doses, params, state),
+           "unmatched_feedback": unmatched_feedback(rows, state)}
     return res
+
+
+def unmatched_feedback(rows, state):
+    """Feedback entries that match no done work in this export (wrong date or a misspelt
+    exercise). They are stored but have no effect; the agent should correct them."""
+    days = defaultdict(set)
+    for r in rows:
+        days[str(r["date"])].add(norm(r["key"]))
+    out = []
+    for f in ((state or {}).get("feedback") or []):
+        if f["about_date"] not in days:
+            out.append({"id": f["id"], "why": "no done sets on %s" % f["about_date"]})
+        elif f["measure"] == "rir" and norm(f["scope"]) not in days[f["about_date"]]:
+            out.append({"id": f["id"], "why": "no done sets of %r on %s" % (f["scope"], f["about_date"])})
+    return out
 
 
 def next_main_lift(events):
@@ -135,9 +159,10 @@ def next_main_lift(events):
     remaining this week; if the week is complete, the lift that opened it."""
     blk = detect_blocks(events)[-1]
     blk_events = events_for_dates(events, blk[2])
-    main_rows = [e for e in blk_events if e["set_type"] == "Main" and e["cycle"] not in (None, -1)]
+    main_rows = [e for e in blk_events if e["set_type"] == "Main" and e["cycle"] not in (None, -1)
+                 and is_done(e)]
     if not main_rows:
-        return None, "no main-lift cycle data in the current block"
+        return None, "no done main-lift sets in the current block"
     latest = max(main_rows, key=lambda e: (e["date"], e["row_idx"]))
     cycle, week = latest["cycle"], latest["week"]
     done, last_main = {}, {}
@@ -167,6 +192,11 @@ def next_session(events, emap, doses, params, last_session):
             if st == "Boring but BIG sets" and any(is_done(s) for s in sets):
                 companion = k
     lifts = [k for k in (key, companion) if k]
+    no_map = [names[k] for k in lifts if norm(k) not in emap]
+    if no_map:
+        return {"available": False,
+                "why": "next is %s, but no muscle mapping for %s (map-set it)"
+                       % (names[key], ", ".join(no_map))}
     need = []
     for k in lifts:
         for m, w in (emap.get(norm(k)) or {}).items():
@@ -192,6 +222,9 @@ def text_next(ns):
     if not ns or not ns.get("available"):
         return "Next session: not available (%s)." % (ns or {}).get("why", "no data")
     lift = ns["main_lift"] + (" + %s BBB" % ns["bbb_lift"] if ns["bbb_lift"] else "")
+    if not ns["earliest"]:
+        return ("Next session: %s. No done work is recorded for its primary muscles (%s), so "
+                "recovery puts no constraint on it." % (lift, ", ".join(p["label"] for p in ns["muscles"])))
     limiting = [p["label"] for p in ns["muscles"] if p["recovered_by"] == ns["all_likely_recovered"]]
     return ("Next session: %s. Its primary muscles (%s) are past 'likely not recovered' from %s "
             "and all likely recovered from %s (last to clear: %s). Valid only while %s is the "
@@ -249,8 +282,11 @@ def text_recovery(res):
             "" if m["tuning"] == "default" else " (window adjusted x%g)" % m["multiplier"]))
     if t["points"]:
         out.append("Predictions vs reports (state going into the session: limited / not limited):")
-        for s in (RECOVERED, UNCERTAIN, NOT):
+        for s in (RECOVERED, UNCERTAIN, NOT, UNTRAINED):
             out.append("  %-22s %d / %d" % (s, t["table"][s]["limited"], t["table"][s]["not_limited"]))
+    for u in res.get("unmatched_feedback") or []:
+        out.append("WARNING: feedback %s matches nothing in this export (%s); it has no effect. "
+                   "Remove it (feedback-remove) and record it again correctly." % (u["id"], u["why"]))
     out.append("Heuristic: windows are literature ranges, not measurements of this person.")
     return "\n".join(out)
 
@@ -271,7 +307,8 @@ def unknowns(events, emap, params, state, as_of, notes_since=None, state_path="S
     seen = set()
     for e in events:
         if e["date"] in note_dates and e["notes"] and e["set_index"] == 0:
-            uid = "note:%s:%s" % (e["date"], norm(e["key"]))
+            uid = "note:%s:%s%s" % (e["date"], norm(e["key"]),
+                                    ":" + norm(e["set_type"]) if e["set_type"] else "")
             if uid in closed or uid in seen:
                 continue
             seen.add(uid)
@@ -285,13 +322,13 @@ def unknowns(events, emap, params, state, as_of, notes_since=None, state_path="S
     recent = as_of is not None and 0 <= (as_of - latest).days <= RECENT_DAYS
     if recent:
         uid = "limited:%s" % latest
-        if uid not in closed:
-            used = []
-            for r in rows:
-                if r["date"] == latest and r["kind"] in ("main", "joker", "bbb"):
-                    for m, w in r["muscles"].items():
-                        if w >= 1.0 and m not in used:
-                            used.append(m)
+        used = []
+        for r in rows:
+            if r["date"] == latest and r["kind"] in ("main", "joker", "bbb"):
+                for m, w in r["muscles"].items():
+                    if w >= 1.0 and m not in used:
+                        used.append(m)
+        if uid not in closed and used:
             pred = [{"muscle": m, "predicted_going_in":
                      muscle_status(doses[m], params, m, latest, strictly_before=True)["state"]}
                     for m in used]
@@ -306,7 +343,7 @@ def unknowns(events, emap, params, state, as_of, notes_since=None, state_path="S
                                   "--value 0)" % (state_path, latest)})
         effort = defaultdict(lambda: {"sets": [], "dose": 0.0, "muscles": set()})
         for r in rows:
-            if r["date"] == latest and r["kind"] in ("joker", "bbb", "accessory"):
+            if r["date"] == latest and r["kind"] in RIR_KINDS:
                 x = effort[r["key"]]
                 x["sets"].append("%gx%s" % (r["weight"], r["reps"]))
                 x["dose"] += sum(r["muscles"].values())

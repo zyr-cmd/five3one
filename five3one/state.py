@@ -50,25 +50,45 @@ def load_state(path):
     base = empty_state()
     for k, v in base.items():
         st.setdefault(k, v)
-    for name, weights in st["exercise_map"].items():
-        _check_weights(name, weights)
-    for name, v in st["params"].items():
-        try:
+        if type(st[k]) is not type(v):
+            raise StateError("state file %s: %r must be %s" % (path, k, type(v).__name__))
+    try:
+        for name, weights in st["exercise_map"].items():
+            _check_weights(name, weights)
+        for name, v in st["params"].items():
             check_param(name, v)
-        except ValueError as exc:
-            raise StateError("state file %s: %s" % (path, exc))
+        for fb in st["feedback"]:
+            _check_feedback(fb)
+        for key in ("answered", "dismissed"):
+            if not all(isinstance(x, str) for x in st[key]):
+                raise StateError("%r must be a list of ids" % key)
+    except (StateError, ValueError) as exc:
+        raise StateError("state file %s: %s" % (path, exc))
     return st
+
+
+def _check_feedback(fb):
+    need = ("id", "measure", "about_date", "scope", "value")
+    if not isinstance(fb, dict) or any(k not in fb for k in need):
+        raise StateError("feedback entry %r must have %s" % (fb, ", ".join(need)))
+    _check_measure(fb["measure"], fb["scope"], fb["value"])
 
 
 def save_state(path, state):
     """Atomic write; bumps the revision. Returns the new revision."""
-    state["revision"] = int(state.get("revision", 0)) + 1
+    new = int(state.get("revision", 0)) + 1
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(state, fh, indent=2, sort_keys=True, ensure_ascii=False)
-        fh.write("\n")
-    os.replace(tmp, path)
-    return state["revision"]
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(dict(state, revision=new), fh, indent=2, sort_keys=True, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except OSError as exc:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise StateError("cannot write state file %s: %s" % (path, exc))
+    state["revision"] = new
+    return new
 
 
 def _check_weights(name, weights):
@@ -83,6 +103,8 @@ def _check_weights(name, weights):
 
 
 def set_mapping(state, exercise, weights):
+    if not norm(exercise):
+        raise StateError("exercise name is empty")
     _check_weights(exercise, weights)
     key = exercise.strip()
     for existing in list(state["exercise_map"]):
@@ -95,11 +117,15 @@ def set_mapping(state, exercise, weights):
 
 def set_param(state, name, value, reason, date_str):
     v = check_param(name, value)
-    from .params import PARAMS
+    from .params import PARAMS, resolve_params
     old = state["params"].get(name, PARAMS[name]["default"])
     if old == v:
         return False, old, v
-    state["params"][name] = v
+    resolve_params({"params": dict(state["params"], **{name: v})})  # cross-checks the bands
+    if v == PARAMS[name]["default"]:
+        state["params"].pop(name, None)
+    else:
+        state["params"][name] = v
     state["param_log"].append({"date": date_str, "param": name, "old": old, "new": v,
                                "reason": reason})
     return True, old, v
@@ -120,21 +146,7 @@ def unknown_id_for(measure, about_date, scope):
 
 def add_feedback(state, measure, about_date, scope, value, recorded, source="chat", quote=None):
     """Idempotent by id: the same answer twice changes nothing; a different value replaces."""
-    if measure not in MEASURES:
-        raise StateError("unknown measure %r. Measures: %s" % (measure, ", ".join(sorted(MEASURES))))
-    kind, lo, hi, _ = MEASURES[measure]
-    if kind == "muscle" and scope != "all" and scope not in MUSCLE_IDS:
-        raise StateError("scope for %s must be a muscle id or 'all'. Muscles: %s"
-                         % (measure, ", ".join(MUSCLE_IDS)))
-    try:
-        v = int(value)
-    except (TypeError, ValueError):
-        raise StateError("value must be a whole number, got %r" % (value,))
-    if scope == "all" and (measure != "limited" or v != 0):
-        raise StateError("scope 'all' is only for recording that nothing was limiting "
-                         "(--measure limited --value 0)")
-    if not lo <= v <= hi:
-        raise StateError("%s value must be %d to %d, got %d" % (measure, lo, hi, v))
+    v = _check_measure(measure, scope, value)
     fid = feedback_id(measure, about_date, scope)
     entry = {"id": fid, "measure": measure, "about_date": about_date, "scope": scope,
              "value": v, "recorded": recorded, "source": source, "quote": quote}
@@ -153,6 +165,43 @@ def add_feedback(state, measure, about_date, scope, value, recorded, source="cha
         state["answered"].append(uid)
         changed = True
     return changed, entry
+
+
+def _check_measure(measure, scope, value):
+    if measure not in MEASURES:
+        raise StateError("unknown measure %r. Measures: %s" % (measure, ", ".join(sorted(MEASURES))))
+    kind, lo, hi, _ = MEASURES[measure]
+    if not isinstance(scope, str) or not scope.strip():
+        raise StateError("scope is empty")
+    if kind == "muscle" and scope != "all" and scope not in MUSCLE_IDS:
+        raise StateError("scope for %s must be a muscle id or 'all'. Muscles: %s"
+                         % (measure, ", ".join(MUSCLE_IDS)))
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        raise StateError("value must be a whole number, got %r" % (value,))
+    if scope == "all" and (measure != "limited" or v != 0):
+        raise StateError("scope 'all' is only for recording that nothing was limiting "
+                         "(--measure limited --value 0)")
+    if not lo <= v <= hi:
+        raise StateError("%s value must be %d to %d, got %d" % (measure, lo, hi, v))
+    return v
+
+
+def remove_feedback(state, fid):
+    """Remove one feedback entry by id and reopen the unknown it answered."""
+    hit = [f for f in state["feedback"] if f["id"] == fid]
+    if not hit:
+        raise StateError("no feedback with id %r. Ids: %s"
+                         % (fid, ", ".join(f["id"] for f in state["feedback"]) or "none"))
+    state["feedback"] = [f for f in state["feedback"] if f["id"] != fid]
+    f = hit[0]
+    uid = unknown_id_for(f["measure"], f["about_date"], f["scope"])
+    still = any(unknown_id_for(x["measure"], x["about_date"], x["scope"]) == uid
+                for x in state["feedback"])
+    if uid in state["answered"] and not still:
+        state["answered"].remove(uid)
+    return True
 
 
 def dismiss(state, unknown_id):

@@ -184,6 +184,8 @@ def next_session_section(events, as_of, state=None, state_path="STATE.json"):
     from .recovery import text_next
     try:
         allres = build_all(events, state, as_of, state_path=state_path)
+    except ValueError as exc:
+        return "\n## Next session\nMuscle output unavailable: %s\n" % exc, None
     except UnmappedError as exc:
         return ("\n## Next session\nMuscle output withheld: %s. Map each one "
                 "(map-set), then rerun.\n" % exc), None
@@ -282,6 +284,10 @@ def cmd_update(args):
             with open(html_out, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(render_html(allres))
             wrote_muscles = [mcsv_out, html_out]
+        else:
+            for stale in (mcsv_out, html_out):  # never leave an older muscle file beside a new report
+                if os.path.exists(stale):
+                    os.remove(stale)
     except OSError as exc:
         return die(args, "cannot write output: %s" % exc)
     dates = session_dates(events)
@@ -306,10 +312,13 @@ def cmd_update(args):
             print("  warning: " + w)
         for path in result["wrote"]:
             print("  wrote %s" % path)
-        if allres is None:
+        if allres is None and "muscles" in result:
             m = result["muscles"]
-            print("MUSCLE OUTPUT WITHHELD: no muscle mapping for %s.\nMap each one, then rerun:\n  %s"
+            print("MUSCLE OUTPUT WITHHELD: no muscle mapping for %s. muscles.csv and muscles.html "
+                  "were not written.\nMap each one, then rerun:\n  %s"
                   % (", ".join(m["unmapped"]), "\n  ".join(m["fix"])))
+        elif allres is None:
+            print("MUSCLE OUTPUT UNAVAILABLE (see the Next session section of progress.md).")
         else:
             print(text_next(allres["recovery"]["next_session"]))
             print(allres["state"]["summary"])

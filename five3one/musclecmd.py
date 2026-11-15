@@ -12,7 +12,7 @@ from .muscles import (LABEL, MUSCLE_IDS, UnmappedError, lens_program, lens_sessi
 from .params import PARAMS, resolve_params
 from .parse import session_dates
 from .state import (MEASURES, StateError, add_feedback, dismiss, empty_state, load_state,
-                    save_state, set_mapping, set_param, summary)
+                    remove_feedback, save_state, set_mapping, set_param, summary)
 from .text import die, norm
 
 
@@ -59,7 +59,8 @@ def muscle_csv(allres):
                  "none" if allres["state"]["revision"] is None else allres["state"]["revision"],
                  allres["recovery"]["k"]))
     buf.write("# Reading a row on date D: D < not_before = likely not recovered; "
-              "D < recovered_by = uncertain; otherwise likely recovered. Blank = not trained.\n")
+              "D < recovered_by = uncertain; otherwise likely recovered, or 'not trained recently' "
+              "once last_hit is more than 14 days before D. Blank = no done work in the export.\n")
     buf.write("# Valid only while last_session above is still the last logged session. "
               "sets_per_week counts secondary work at half; direct = primary-mover sets.\n")
     wr = csv.writer(buf, lineterminator="\n")
@@ -83,8 +84,8 @@ def cmd_muscles(events, args):
     state, err = _state_or_die(args)
     if err:
         return err
-    emap = resolve_map(state)
     try:
+        emap = resolve_map(state)
         if args.lens == "program":
             res = lens_program(events, emap, args.as_of, args.weeks)
             text = text_program(res)
@@ -120,8 +121,8 @@ def cmd_explain(events, args):
         return err
     if args.muscle not in MUSCLE_IDS:
         return die(args, "unknown muscle %r. Muscles: %s" % (args.muscle, ", ".join(MUSCLE_IDS)))
-    emap, params = resolve_map(state), resolve_params(state)
     try:
+        emap, params = resolve_map(state), resolve_params(state)
         last = session_dates(events)[-1]
         rec = rc.lens_recovery(events, emap, params, state, max(args.as_of or last, last))
         prog = lens_program(events, emap, None, args.weeks)
@@ -185,6 +186,8 @@ def cmd_unknowns(events, args):
                             args.state or "STATE.json")
     except UnmappedError as exc:
         return unmapped_error(args, exc)
+    except ValueError as exc:
+        return die(args, str(exc))
     if args.json:
         print(json.dumps({"unknowns": items}, indent=2))
     else:
@@ -202,15 +205,20 @@ def _open_state(args):
 
 def _saved(args, state, changed, payload, line):
     if changed:
-        payload["revision"] = save_state(args.state, state)
+        try:
+            payload["revision"] = save_state(args.state, state)
+        except StateError as exc:
+            return die(args, str(exc))
     else:
         payload["revision"] = state["revision"]
     payload["changed"] = changed
     if args.json:
         print(json.dumps(payload, indent=2))
+    elif changed:
+        print("%s (state revision %d). Save the state file back to the project."
+              % (line, payload["revision"]))
     else:
-        print("%s%s (state revision %d). Save the state file back to the project."
-              % (line, "" if changed else " - no change", payload["revision"]))
+        print("%s - no change (state revision %d)." % (line, payload["revision"]))
     return 0
 
 
@@ -300,6 +308,15 @@ def cmd_feedback_add(args):
                                               entry["scope"], entry["value"]))
 
 
+def cmd_feedback_remove(args):
+    try:
+        state = _open_state(args)
+        remove_feedback(state, args.id)
+    except StateError as exc:
+        return die(args, str(exc))
+    return _saved(args, state, True, {"removed": args.id}, "removed feedback %s" % args.id)
+
+
 def cmd_unknown_dismiss(args):
     try:
         state = _open_state(args)
@@ -311,5 +328,6 @@ def cmd_unknown_dismiss(args):
 
 STATE_COMMANDS = {"map-set": cmd_map_set, "map-list": cmd_map_list, "param-set": cmd_param_set,
                   "param-list": cmd_param_list, "feedback-add": cmd_feedback_add,
+                  "feedback-remove": cmd_feedback_remove,
                   "unknown-dismiss": cmd_unknown_dismiss}
 MEASURE_HELP = "; ".join("%s = %s" % (k, v[3]) for k, v in MEASURES.items())

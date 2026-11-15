@@ -104,11 +104,15 @@ def counted_sets(events, emap):
     """Done, non-warm-up sets as rows carrying their muscle weights.
 
     Returns (rows, other_count). Raises UnmappedError if any done set belongs to an
-    exercise with no mapping. A row's `top` is True for the last done set of a Main
-    row (the week's top or AMRAP set)."""
+    exercise with no mapping. A row's `top` is True for the last set of a Main row
+    (the week's top or AMRAP set), and only if that set was done."""
     names = canonical_names(events)
     rows, unmapped, other = [], set(), 0
-    last_main = {}
+    last_main, row_end = {}, {}
+    for e in events:
+        if e["set_type"] == "Main":
+            k = (e["date"], e["key"], e["row_idx"])
+            row_end[k] = max(row_end.get(k, 0), e["set_index"])
     for e in events:
         kind = set_kind(e)
         if kind == "warmup" or not is_done(e):
@@ -126,7 +130,7 @@ def counted_sets(events, emap):
         rows.append(row)
         if kind == "main":
             k = (e["date"], e["key"], e["row_idx"])
-            if k not in last_main or row["order"] > last_main[k]["order"]:
+            if e["set_index"] == row_end[k]:
                 last_main[k] = row
     if unmapped:
         raise UnmappedError(unmapped)
@@ -163,11 +167,18 @@ def _exercise_list(a):
 def lens_program(events, emap, as_of=None, weeks=4):
     """Lens A. Done sets per week per muscle over the last `weeks` calendar weeks
     ending at as_of (default: the last session date), within the current block."""
+    if weeks < 1:
+        raise ValueError("--weeks must be 1 or more")
     rows, other = counted_sets(events, emap)
     end = as_of or session_dates(events)[-1]
     block_start = detect_blocks(events)[-1][0]
+    if end < block_start:
+        raise ValueError("--as-of %s is before the current training block (started %s)"
+                         % (end, block_start))
     start = max(block_start, end - timedelta(days=weeks * 7 - 1))
-    span_weeks = max(((end - start).days + 1) / 7.0, 1 / 7.0)
+    # A window shorter than a week is not scaled up: its totals are reported as one week.
+    span_weeks = max(((end - start).days + 1) / 7.0, 1.0)
+    partial = (end - start).days + 1 < 7
     agg = _aggregate([r for r in rows if start <= r["date"] <= end])
     muscles = []
     for m in MUSCLE_IDS:
@@ -181,7 +192,8 @@ def lens_program(events, emap, as_of=None, weeks=4):
             "exercises": _exercise_list(a)})
     sessions = len({r["date"] for r in rows if start <= r["date"] <= end})
     return {"lens": "program", "window": {"start": str(start), "end": str(end),
-                                          "weeks": round(span_weeks, 2), "sessions": sessions},
+                                          "weeks": round(span_weeks, 2), "sessions": sessions,
+                                          "partial_week": partial},
             "muscles": muscles, "uncounted_other_sets": other}
 
 
@@ -204,7 +216,8 @@ def lens_session(events, emap, date=None):
 def text_program(res):
     w = res["window"]
     out = ["Program: done sets per week, %s to %s (%.1f weeks, %d sessions)"
-           % (w["start"], w["end"], w["weeks"], w["sessions"]),
+           % (w["start"], w["end"], w["weeks"], w["sessions"])
+           + (" [under a week of data: totals shown, not scaled up]" if w["partial_week"] else ""),
            "%-18s%8s%8s%10s" % ("Muscle", "Sets/wk", "Direct", "Days/wk")]
     for m in sorted(res["muscles"], key=lambda x: (-x["sets_per_week"], x["label"])):
         out.append("%-18s%8.1f%8.1f%10.1f" % (m["label"], m["sets_per_week"],

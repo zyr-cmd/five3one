@@ -81,4 +81,12 @@ def resolve_params(state=None):
     values = {name: p["default"] for name, p in PARAMS.items()}
     for name, v in ((state or {}).get("params") or {}).items():
         values[name] = check_param(name, v)
+    edges = [values["band%d.upto" % i] for i in (1, 2, 3, 4)]
+    if edges != sorted(edges) or len(set(edges)) != 4:
+        raise ValueError("dose band edges must increase: band1.upto < band2.upto < band3.upto "
+                         "< band4.upto (got %s)" % ", ".join("%g" % e for e in edges))
+    for i in (1, 2, 3, 4, 5):
+        if values["band%d.lo" % i] > values["band%d.hi" % i]:
+            raise ValueError("band%d.lo (%g) must not exceed band%d.hi (%g)"
+                             % (i, values["band%d.lo" % i], i, values["band%d.hi" % i]))
     return values
