@@ -1,281 +1,174 @@
-# Muscle map: design plan (v2)
+# Muscle map: design plan (v3)
 
-Status: revised after an independent review; awaiting the owner's approval. No feature code exists yet. Section 14 lists what the review changed.
+Status: awaiting the owner's agreement. No feature code exists.
 
-## 1. What this is for
+This version is built from the owner's brief. Section 1 is the brief. Every design element in sections 2 to 8 names the brief line it serves. Anything that serves no line is in section 9 as a proposed addition for the owner to accept or reject.
 
-The tool answers three questions from a Five3One export:
+## 1. The brief
 
-- **A. Program:** per muscle, how much work was done per week, and which muscles get none?
-- **B. Session:** what did one session hit?
-- **C. Recovery:** what has been hit recently, and is each muscle likely recovered yet?
+In the owner's words.
 
-The decision it feeds: from what date are the muscles needed by the next main lift likely recovered, and so should the next session be moved or trimmed.
+| Id | Brief |
+|---|---|
+| B1 | A "tiny .py or similar that eats the workout.csv" and makes the body diagram that "colours in muscle groups to indicate what's been trained". |
+| B2 | Lens A, program evaluation: "what is actually getting hit across the program (any missing links)". |
+| B3 | Lens B, individual session: "what just got hit". |
+| B4 | Lens C, rolling recovery: "what has been hit recently and how likely is it to be recovered by now", tuned "based on literature on recovery of muscle groups, type of training stimulus, and user response (qualitative feedback)". |
+| B5 | "Useful for an agentic worker." "The visual aid is just to keep the meat proxy (me) happy." |
+| B6 | "The Claude worker can ask questions about the workout to estimate likely fatigue costs." |
+| B7 | "Agentic user first - the agent can use it, can control it, and can get the qualitative bits from the human as needed." |
+| B8 | Work with the project as it is (its docs, the export flow, the scheduled tasks) "with minimal extra work for the human, to deliver maximal value". |
 
-### Users, in priority order
+Rules the owner stated:
 
-1. **An agent (Claude) working in the owner's project.** It starts each session with the project's docs but without the export and without earlier conversations. It runs commands, reads compact output, asks the human at most one question, and records the answer. It never does arithmetic and never invents a mapping.
-2. **The human.** He logs sets in the Five3One app, drops an export into a chat, and reads a short answer and a body diagram. He does not learn syntax, edit files, or judge model parameters.
+| Id | Rule |
+|---|---|
+| R1 | A ticked set is done. An unticked set is not done (never "failed"). |
+| R2 | A line with 0 reps is not done. |
+| R3 | Accessory rows are a menu, not a prescription. |
+| R4 | Soreness is not necessarily an indicator of recovery. |
+| R5 | An agent session starts inside the project, with its docs. It does not have the export until the owner supplies one. |
 
-### Non-goals for this version
+Agreed experience (E), proposed on 2026-11-16 and accepted by the owner as reasonable:
 
-- Nutrition, energy deficit, sleep and cardio are not modelled. They shift recovery, so the windows are expected to drift; the single user multiplier (section 5C) is how that is absorbed.
-- Time of day: the export has dates only, so recovery resolves to whole days.
-- Whole-body (systemic) fatigue, effort estimated from e1RM, and automatic parameter fitting are deferred (section 13).
+- No new human touchpoints: he logs in the app, drops an export into a project chat, and a weekly scheduled review runs.
+- The existing `update` command also produces the muscle output.
+- The muscle output is a section of the stored `progress.md`.
+- Recovery is stored as dates, so a later session can read it without the export.
+- One new stored file holds what the export cannot regenerate.
+- The headline is a line about the next session.
 
-## 2. The experience
+## 2. What is counted (R1, R2, R3)
 
-No new human touchpoints.
+- A set counts when it is ticked and its reps are above zero. One function implements this and every command uses it.
+- Sets that are listed and not done are ignored everywhere. Nothing reports missed or unticked work.
+- Warm-up sets of a main lift are not counted.
 
-1. **After training: drop the export into a project chat.** The agent runs one command (`update`). It gets the refreshed report with a muscles section, an HTML body diagram to send, and at most one question.
-2. **Weekly review (existing scheduled task, no human present).** It reads the stored report and uses lens A. It asks no muscle questions.
-3. **In the gym (optional).** Free text in the app's Notes field. The tool lists notes from sessions newer than the last stored report; the agent records any soreness or effort the note states, quoting the note as the source.
+## 3. Muscles and the exercise map (B1, B2, B3)
 
-## 3. Rules taken from the owner
+- Sixteen muscle groups, each a region on the diagram: chest, front delts, side delts, rear delts, triceps, biceps, forearms, lats, upper back, lower back, abs, glutes, quads, hamstrings, adductors, calves.
+- Each exercise maps to muscles with a weight: 1.0 for a primary mover, 0.5 for a secondary one. One set of bench is 1 chest set and 0.5 triceps set.
+- The default map is built against the owner's real exercise names and ships in code. Lookup ignores case, spacing and hyphens.
+- An exercise with no mapping is never guessed. Its sets are reported as unmapped, and it appears in the agent's list of unknowns (section 6).
 
-- A set is **done** when it is ticked **and** its reps are above zero. This holds for every set type, accessories included.
-- An unticked set is not done. It is never called failed.
-- A set with a blank tick is not done.
+## 4. The lenses
 
-One function `is_done(event)` in `parse.py` implements this and every command uses it. This changes existing output in one case (a ticked set with 0 reps), which is intended.
+### A. Program (B2)
 
-## 4. Data model
+Over the last N calendar weeks of the current training block (default 4):
 
-### 4.1 Muscle groups
+- done sets per week per muscle, with the direct (weight 1.0) part shown separately;
+- days per week each muscle is hit;
+- **missing links:** muscles that received no direct done work in the window, and muscles hit only as secondary movers.
 
-Sixteen groups with snake_case ids, each a region on the diagram:
+### B. Session (B3)
 
-`chest, front_delts, side_delts, rear_delts, triceps, biceps, forearms, lats, upper_back, lower_back, abs, glutes, quads, hamstrings, adductors, calves`
+For one session (default: the latest): done sets per muscle and the exercises that produced them.
 
-A constant in code, because the diagram depends on it.
+### C. Recovery (B4)
 
-### 4.2 Exercise map
+**What has been hit recently:** per muscle, the date it was last hit and how hard.
 
-`exercise -> {muscle: weight}`, weight 1.0 for a primary mover and 0.5 for a secondary one (fractional-set counting: one set of bench is 1 chest set and 0.5 triceps set). The 0.5 is a counting convention with a cited source, not a fatigue measurement.
+**How hard** is a dose: the sum over done sets of `stimulus weight x muscle weight`. The stimulus weight is where "type of training stimulus" enters. It depends on the kind of set (main, joker, BBB, accessory) and on stated effort where the owner has given it. The literature pass decides which further distinctions have support (for example proximity to failure, volume in one session, or work at long muscle length); a parameter exists only for a distinction with a cited source.
 
-- Lookup goes through the existing `text.norm` (case, whitespace and hyphens ignored), so "Dead Lift", "deadlift" and "Chest Supported Row" resolve.
-- The default map is built once, at build time, against the owner's real exercise names, and ships in code.
-- State-file overrides add or replace entries.
-- An exercise with no mapping is never guessed. Its sets go to an `unmapped` bucket that every output reports. The tool proposes nothing; the agent proposes a mapping and the human confirms with a yes or no.
+**How likely it is recovered by now:** each muscle gets a recovery window in days, `[lo, hi]`, that lengthens with dose. At a given date the muscle is:
 
-### 4.3 Set classes
+- **likely not recovered** before `last hit + lo`;
+- **uncertain** between;
+- **likely recovered** after `last hit + hi`.
 
-| Class | Source | Counted |
+The three states are the answer to "how likely". A finer probability would claim precision the evidence does not have.
+
+**Tuning, on the three axes the brief names:**
+
+| Axis | How it enters | Who changes it |
 |---|---|---|
-| warmup | `Warm up` rows of a main lift | no |
-| main | `Main` rows | yes |
-| joker | `Joker sets` rows | yes |
-| bbb | `Boring but BIG sets` rows | yes |
-| accessory | rows with an empty `Set`, and `Warm up` rows of non-main exercises | yes |
-| other | any other `Set` value | reported, not counted |
+| Literature on muscle groups | A per-muscle multiplier on the window. Default from the literature where it supports a difference, otherwise 1.0 and labelled "no evidence for a split". | Agent, with a reason |
+| Type of training stimulus | The stimulus weights above. | Agent, with a reason |
+| User response | Feedback (section 6) is stored and tallied against the model's predictions. One global multiplier and the per-muscle multipliers are adjusted from it. | Agent proposes in plain words, owner agrees |
 
-There is no separate "top set" class in this version.
+Nothing is fitted automatically. With about three sessions per lift per block there is not enough data to fit per-muscle values, so changes are explicit, one at a time, each logged with its reason.
 
-### 4.4 Hard sets
+Corrections carried over from the independent review, kept because they fix something that was wrong:
 
-Lenses A and B count sets. Lens C needs to know how demanding a session was for a muscle, and uses **hard-set equivalents**: each done set counts `class weight x muscle weight`.
+- Effort is not estimated from e1RM. Inverting Epley gives absurd reps in reserve on sub-maximal sets and the wrong sign on a fatigued day.
+- The earlier decay curve with a fatigue threshold is gone. Its threshold was in invented units that no source could supply.
+- The export has dates only, so recovery resolves to whole days, and lens C requires the owner's local date.
 
-Class weights are parameters (section 8). If the human has stated reps in reserve for an exercise on a date, that overrides the class weight for those sets. Every figure records which source it used. Effort is not estimated from e1RM in this version (section 14, item 1).
+## 5. Parameters (B4, B7)
 
-## 5. The three lenses
+Every numeric assumption is a named parameter with a default, a plausible range and a citation: the secondary-mover weight, the stimulus weights, the dose-to-window table, and the muscle multipliers.
 
-### A. Program
+Defaults come from a literature pass that is a build task, not from memory.
 
-Window: the last `--weeks N` calendar weeks ending at `--as-of` (default 4), within the current training block.
+## 6. The agent's side (B5, B6, B7)
 
-Per muscle:
+**Use.** Every command gives compact text and full JSON. `explain` returns the sets, parameters and feedback behind any one figure. The agent never does arithmetic.
 
-- **done sets per week**, as a fractional total with the direct (weight 1.0) part shown separately.
-- **frequency:** days per week with at least one done set.
-- **flags**, at most three per report: muscles with no done direct set in the window, ranked by how long since their last one.
+**Control.** The agent can read and set every parameter and every exercise mapping:
 
-This lens is about coverage: what the training as actually done hits, and which muscles it leaves out. It is not an adherence report. Accessory rows are a menu, not a prescription (the owner's statement), so rows that were listed and not done are ignored throughout.
+- `param-list` shows each parameter's default, current value and source;
+- `param-set NAME VALUE --reason TEXT` changes one and logs it;
+- `map-set EXERCISE muscle=weight ...` changes a mapping.
 
-Volume reference bands from the literature are not used for flags in this version.
+**Getting the qualitative bits.** The tool reports what it does not know about recent sessions as a ranked list of unknowns, each with what the answer would change:
 
-### B. Session
+- an unmapped exercise;
+- for the session just logged, whether a muscle that was not recovered held back a lift, and how much (R4: this is the recovery signal, not soreness; and it is asked about the session just logged because that is when a prediction can be checked);
+- how hard a BBB or accessory lift was, in reps in reserve;
+- free-text notes in the export from sessions newer than the stored report, for the agent to read.
 
-For one date (default: the latest session): per muscle, done sets and hard-set equivalents, with the contributing exercises.
+The agent decides which of these to ask and how many, in the conversation it is in. It records answers with `feedback-add`. An answered or dismissed unknown is not listed again. When no human is present (the weekly task) the agent asks nothing.
 
-### C. Recovery
+Soreness, if the owner mentions it, is stored as context and does not move the model.
 
-A time-window model, in days, with no invented units.
+## 7. State (E, R5)
 
-For each muscle, take the most recent date on which it received done work, and that date's dose `d` (hard-set equivalents for the muscle that day). The muscle's expected recovery window is
+One JSON file in the owner's project, passed with `--state`. It holds only what the export cannot regenerate: mapping overrides, parameter overrides with their log, feedback, and which unknowns are answered or dismissed.
 
-`[lo(d), hi(d)] x k`
+- The agent changes it only through commands, then saves it back to the project once at the end of the session.
+- Commands that need no export take no CSV.
+- With no state file the tool runs on defaults and says `state: none`.
 
-- `lo` and `hi` are days, non-decreasing in `d`, defined by a small table of dose bands (section 8). They come from the literature pass and carry citations.
-- `k` is one user multiplier, default 1.0. It is the only personal parameter.
-- If two sessions hit the muscle within an open window, the later window end wins and the doses are not summed. This is a stated simplification.
+## 8. Outputs and project integration (B1, B5, B8, E)
 
-State at `--as-of` (required for this lens; an as-of before the last session is an error):
+- **`update`** (existing entry point) also writes the muscles section into `progress.md`, writes the body diagram as one HTML file, and prints the unknowns.
+- **progress.md muscles section:** the next-session line; the recovery table (muscle, last hit, state, window dates); the program table and missing links; unmapped exercises; the state summary.
+- **Next-session line:** the earliest date on which the muscles used by the next main lift and its BBB lift are past `lo`, and the date they are all past `hi`. Valid only while no later session is logged, and it says so.
+- **Body diagram:** front and back outlines with the sixteen regions, one panel per lens, the same numbers in a table underneath. Rendered from the JSON so the picture cannot disagree with the data.
+- **Project docs:** one new row in the routing table; the update procedure gains `--state`, the save-back and sending the diagram.
+- **Weekly review task:** reads the program table. Wording to be shown to the owner before the task is changed.
 
-- before `last + lo`: **likely not recovered**
-- between: **uncertain**
-- after `last + hi`: **likely recovered**
+## 9. Proposed additions (not in the brief; owner to accept or reject each)
 
-Outputs per muscle: last hit date, dose, the window as two dates, the state, and the contributing sets.
+| # | Addition | Why | Cost |
+|---|---|---|---|
+| P1 | **State-loss guard.** `update` stamps a state revision into `progress.md`; the next run refuses if the state file is missing or older. | The tuning lives in one project file. Losing it would otherwise look like a fresh start. | One extra argument on `update`. |
+| P2 | **Idempotent feedback.** Recording the same answer twice changes nothing. | Two sessions might record the same answer. | None for the owner. |
+| P3 | **Prediction tally in lens C.** How often a muscle the model called recovered was reported as limiting. | It is the evidence for changing a multiplier. | A few lines in the output. |
 
-**Next-session line.** The next main lift is the one longest since trained among those remaining this week (existing `status` logic); if the week is complete, the lift that opened the previous week. Its companion BBB lift is taken from the most recent session with the same main lift. The line gives the earliest date on which every primary muscle of those two lifts is past its `lo`, and the date on which all are past `hi`. It is valid only if no session has been logged since, and says so.
+## 10. Cut or deferred
 
-### Honesty about C
+- Adherence reporting of any kind (cut: not in the brief, R3).
+- Effort from e1RM, the threshold decay model, automatic calibration (cut: unsound, section 4C).
+- Whole-body fatigue term (deferred until per-muscle windows are shown to mispredict).
+- Weekly volume reference bands (deferred: not in the brief).
 
-C is a heuristic. The windows are literature ranges, not measurements of this person, and the only personal adjustment is `k`. Every C output states the value of `k` and how many feedback points support it.
+## 11. Size
 
-## 6. State file
+B1 asked for something small. The feature is three lenses, one state file and these commands: `update` (existing), `muscles`, `explain`, `unknowns`, `feedback-add`, `param-list`, `param-set`, `map-set`.
 
-One JSON file stored in the owner's project (never in this repo), passed with `--state PATH`. It holds only what the export cannot regenerate.
+## 12. Build order
 
-```json
-{
-  "schema": 1,
-  "revision": 7,
-  "exercise_map": {"pec fly": {"chest": 1.0, "front_delts": 0.5}},
-  "k": 1.0,
-  "feedback": [
-    {"id": "fb-2026-01-10-hamstrings-limited", "recorded": "2026-01-10", "about_date": "2026-01-10",
-     "scope_type": "muscle", "scope": "hamstrings", "measure": "limited",
-     "value": 2, "source": "chat", "quote": null}
-  ],
-  "answered": ["q-pre-2026-01-10"],
-  "skipped": []
-}
-```
-
-Rules:
-
-- The agent changes it only through commands. Each command validates, writes atomically, increments `revision`, and prints what changed and the new revision.
-- Writes are idempotent by `id`: recording the same feedback twice changes nothing.
-- An unknown `schema` is an error.
-- **State loss is detected.** `update` stamps the state revision and counts into the report. On the next run the agent passes `--state-revision N` from the stored report (the same pattern as `--min-sessions`); a missing state file or a lower revision is a refusal, not a silent fresh start. With no state and no expected revision, output says `state: none`.
-- One save-back point: after `update` and any feedback command, the agent saves the state file to the project once, at the end of the session.
-
-Measures:
-
-- `limited`: 0 to 3 for a muscle, for how much it limited performance in a given session (0 not at all, 3 cut the work short). This is the recovery signal. Soreness is not used as one: it correlates poorly with loss of muscle function (Nosaka, Newton and Sacco 2002, Scand J Med Sci Sports 12:337-346).
-- `sore`: 0 to 3 for a muscle before a given session. Stored as context only; it does not move `k`.
-- `rir`: reps in reserve for an exercise on a date, with a set class.
-
-## 7. Commands
-
-Flat, hyphenated names in the existing style. All accept `--json`. Commands that need no export take no CSV.
-
-| Command | CSV | Purpose |
-|---|---|---|
-| `update --out-dir DIR [--state PATH --state-revision N] [--as-of D] [--min-sessions N]` | yes | Existing entry point, extended: muscles section in `progress.md`, `DIR/muscles.html`, at most one question. |
-| `muscles --lens program\|session\|recovery [--date D] [--weeks N] [--as-of D] [--state PATH] [--html PATH]` | yes | One lens on demand. |
-| `explain --muscle M --lens ... [--as-of D]` | yes | The sets, parameters and feedback behind one figure. |
-| `question [--state PATH] [--as-of D]` | yes | The pending question, if any. |
-| `feedback-add --state PATH --question ID ...` | no | Record an answer and mark the question answered. |
-| `question-skip --state PATH --question ID` | no | Mark a question skipped; it is not asked again. |
-| `map-set --state PATH EXERCISE muscle=weight ...`, `map-list [--state PATH]` | no | Exercise map overrides. |
-| `k-set --state PATH VALUE --reason TEXT` | no | Set the user multiplier. |
-
-`report` gains `--state` so that `update` and `report` still produce identical markdown.
-
-## 8. Parameters and their sources
-
-All numeric assumptions live in one module as named parameters, each with a default, a plausible range and a citation:
-
-- the secondary-mover weight (0.5);
-- class weights for hard-set equivalents (main, joker, bbb, accessory);
-- the dose bands and their `lo` and `hi` days.
-
-Defaults are set from a literature pass that is a build task, and are not written from memory. Where the literature does not support a distinction (for example between muscle groups), one shared value is used and the parameter is labelled "no evidence for a split".
-
-## 9. Question protocol
-
-At most **one** question per `update`, and none when no human is present.
-
-Priority:
-
-1. **Unmapped exercise.** The agent proposes a mapping; the human answers yes or no.
-2. **Limited performance.** Asked about the session just logged, because that is when a prediction can be tested: "Did anything that wasn't recovered hold back a lift today? Which muscle, and how much (1 slightly, 2 clearly, 3 cut the work short)?" The answer is recorded against that date for each muscle named; "nothing" is recorded as zeros for the muscles the session's main and BBB lifts use. Soreness mentioned in the answer is stored separately as context.
-3. **Effort.** Reps in reserve on one BBB or accessory lift from the session just logged.
-
-Rules:
-
-- A question is emitted only if its answer can change something shown in that report.
-- Every question has an id. `feedback-add --question ID` marks it answered; `question-skip` retires it. An unanswered question is asked at most twice, then retired.
-- The printed `record` line is a complete, runnable command.
-
-## 10. Use of feedback
-
-This version stores feedback and reports it against predictions; it does not fit anything.
-
-`muscles --lens recovery` shows a small tally once feedback exists: of the `limited` ratings recorded, how many fell in a window the model called likely recovered, uncertain or likely not recovered, and how many of each were rated 1 or above. The agent uses that tally to propose a change to `k` to the human in plain terms ("a muscle the model called recovered held you back in 4 of 5 sessions; lengthen the windows by a quarter?"). One parameter, changed one step at a time.
-
-## 11. Outputs
-
-### progress.md muscles section
-
-Regenerated whole on each export, and kept short because the report is loaded in every chat:
-
-- the next-session line;
-- recovery table: muscle, last hit, state, window dates;
-- program table: muscle, done sets per week (total and direct), frequency; then up to three flags;
-- unmapped exercises;
-- `state: revision N, k = ..., feedback points: ...` or `state: none`.
-
-### JSON
-
-The same content with full provenance. Field names are documented in the package docstring and covered by a golden-file test.
-
-### HTML
-
-One self-contained file: front and back body outlines with the sixteen regions; one panel per lens; a colour scale readable in light and dark that does not rely on hue alone; the same numbers in a table underneath. Rendered from the JSON, so the picture cannot disagree with the data.
-
-## 12. Project integration (outside this repo)
-
-- `CLAUDE.md` routing table: one row for muscles, recovery and the next-session line.
-- `log-update.md`: the extended `update` call with `--state` and `--state-revision`, the single save-back, sending `muscles.html`, asking the one question. The single-file fallback is marked as producing a report without the muscles section.
-- Weekly review task prompt: use the program table; ask no muscle questions.
-- One new project file for the state.
-
-## 13. Acceptance
-
-1. Existing command outputs are unchanged except: the added muscles section in `report` and `update`, and the done rule applied to ticked 0-rep sets.
-2. Unit tests on synthetic fixtures: the done rule; set classes including `other`; map lookup through `norm`; fractional counting; unmapped handling; calendar-week windows; flag cap; recovery windows and states at the boundaries; overlapping windows; the next-session line including the week-complete case; as-of before last session is an error; state validation, revision check, idempotent writes, state-loss refusal; question priority, the one-question cap, skip and retire.
-3. Property tests: adding a done set never lowers a muscle's count or shortens its window; lens A and B output does not depend on `--as-of` beyond the window; a later `--as-of` never moves a state backwards.
-4. Golden-file tests for the muscles section and the JSON.
-5. HTML: an automated check that every region id is present and coloured from the data, plus a rendered image checked by eye for each lens.
-6. **Cold-user test**, scripted and repeated: a fresh agent given only the project docs and a synthetic export must run `update`, report the next-session line, ask the one question, record an answer, save the state, and explain a flagged muscle with `explain`, without reading the source. It is also run with the state file missing, where it must stop and report the refusal.
-7. On the owner's real export: no unmapped exercises; the report's flags are at most three; and one recent week chosen by the owner is shown to him as a sanity check.
-
-Deferred, with the reason:
-
-- **Effort from e1RM.** Inverting Epley gives absurd reps in reserve for sub-maximal sets and the wrong sign on a fatigued day.
-- **Decay model with fatigue thresholds.** The threshold is in invented units and cannot be sourced or identified from a fixed weekly program.
-- **Automatic calibration.** Around three sessions per lift per block cannot support per-muscle fitting.
-- **Systemic fatigue term.** Wait for evidence that per-muscle windows alone mispredict.
-- **Volume reference bands.**
-
-## 14. What the review changed
-
-1. Effort estimated from e1RM was removed; class weights and stated reps in reserve remain.
-2. The exponential decay model with a fatigue threshold was replaced by recovery windows in days with one user multiplier.
-3. The feedback question is about the session just logged, not "today", and asks what limited performance. Soreness is stored as context only.
-4. `calibrate`, per-muscle parameters and the parameter log were removed; feedback is stored and tallied.
-5. "Programmed versus performed" was dropped: the export only has rows for days trained and accessory rows are a menu. Lens A reports coverage from done work per calendar week, with capped flags; nothing reports missed or unticked work.
-6. The next-session line became an earliest-date statement with a rule for a completed week.
-7. State-only commands no longer need a CSV, and state loss is detected through a revision stamped into the report.
-8. Questions were cut to one per export with skip and retire rules, and none when no human is present.
-9. One `is_done` function, map lookup through `norm`, an `other` set class, and snake_case muscle ids.
-
-Kept against the review's advice: the HTML body diagram stays in this version, because the owner asked for it; it is built after the numbers.
-
-## 15. Build order
-
-1. `is_done` applied everywhere; set classes.
-2. Exercise map against the real exercise names; lenses A and B; text and JSON.
-3. State file, revision guard, map and feedback commands, question protocol.
-4. Literature pass for the parameters in section 8.
+1. The done rule in one function; set kinds.
+2. Exercise map against the real names; lenses A and B; text and JSON.
+3. State file; `map-set`, `param-set`, `feedback-add`; unknowns.
+4. Literature pass for the parameters (can run in parallel with 1 to 3).
 5. Lens C, the next-session line, `explain`.
-6. HTML renderer.
-7. `update` and `report` integration; project doc changes.
-8. Cold-user test.
+6. Body diagram.
+7. `update` integration and project doc changes.
+8. Independent code review, then a cold-user test: a fresh agent with only the project docs and a synthetic export runs the whole flow.
 
-## 16. Open question for the owner
+## 13. Open question for the owner
 
-Is sixteen the right granularity, in particular keeping forearms and adductors and splitting upper back from lats?
+Is sixteen the right set of muscle groups, in particular keeping forearms and adductors and splitting upper back from lats?
