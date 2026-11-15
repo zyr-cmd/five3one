@@ -154,7 +154,7 @@ def render_html(allres):
                 '<span><i class="sw s-not"></i>✕ likely not recovered</span>'
                 '<span><i class="sw s-unc"></i>? uncertain</span>'
                 '<span><i class="sw s-rec"></i>✓ likely recovered</span>'
-                '<span><i class="sw q0"></i>– not trained</span></p>')
+                '<span><i class="sw q0"></i>– not trained recently</span></p>')
     recovery = ('<section><h2>Recovery as of %s</h2><p class="lead">%s</p>%s%s%s'
                 '<p class="note">A heuristic: the windows are literature ranges, not measurements '
                 'of you. k = %g; feedback points: %d.</p></section>'
