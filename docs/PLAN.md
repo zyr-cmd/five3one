@@ -6,7 +6,7 @@ Status: revised after an independent review; awaiting the owner's approval. No f
 
 The tool answers three questions from a Five3One export:
 
-- **A. Program:** per muscle, how much work is listed in the logged sessions, how much was done, and where are the gaps?
+- **A. Program:** per muscle, how much work was done per week, and which muscles get none?
 - **B. Session:** what did one session hit?
 - **C. Recovery:** what has been hit recently, and is each muscle likely recovered yet?
 
@@ -85,12 +85,11 @@ Window: the last `--weeks N` calendar weeks ending at `--as-of` (default 4), wit
 
 Per muscle:
 
-- **listed sets per week:** every counted row in the logged sessions, done or not, excluding jokers (optional by the owner's rule). This is what the app listed on days he trained. It is not a prescription, and skipped days contribute nothing.
-- **done sets per week:** done sets only.
-- Both as fractional totals with the direct (weight 1.0) part shown separately.
+- **done sets per week**, as a fractional total with the direct (weight 1.0) part shown separately.
 - **frequency:** days per week with at least one done set.
-- **flags**, at most three per report, ranked: a muscle with no done direct set in the window; a muscle whose done sets are under half of listed.
-- A separate one-line list: exercises listed in the window and never done.
+- **flags**, at most three per report: muscles with no done direct set in the window, ranked by how long since their last one.
+
+Accessory rows are a menu, not a prescription (the owner's statement), so done work is never compared with listed work. Listed rows are used for one thing only: a single line naming the exercises listed in the window and never done.
 
 Volume reference bands from the literature are not used for flags in this version.
 
@@ -215,7 +214,7 @@ Regenerated whole on each export, and kept short because the report is loaded in
 
 - the next-session line;
 - recovery table: muscle, last hit, state, window dates;
-- program table: muscle, listed and done sets per week, frequency; then up to three flags;
+- program table: muscle, done sets per week (total and direct), frequency; then up to three flags;
 - exercises listed and never done; unmapped exercises;
 - `state: revision N, k = ..., feedback points: ...` or `state: none`.
 
@@ -237,7 +236,7 @@ One self-contained file: front and back body outlines with the sixteen regions; 
 ## 13. Acceptance
 
 1. Existing command outputs are unchanged except: the added muscles section in `report` and `update`, and the done rule applied to ticked 0-rep sets.
-2. Unit tests on synthetic fixtures: the done rule; set classes including `other`; map lookup through `norm`; fractional counting; unmapped handling; calendar-week windows; flag cap; recovery windows and states at the boundaries; overlapping windows; the next-session line including the week-complete case; as-of before last session is an error; state validation, revision check, idempotent writes, state-loss refusal; question priority, the one-question cap, skip and retire.
+2. Unit tests on synthetic fixtures: the done rule; set classes including `other`; map lookup through `norm`; fractional counting; unmapped handling; calendar-week windows; flag cap; the never-done line; recovery windows and states at the boundaries; overlapping windows; the next-session line including the week-complete case; as-of before last session is an error; state validation, revision check, idempotent writes, state-loss refusal; question priority, the one-question cap, skip and retire.
 3. Property tests: adding a done set never lowers a muscle's count or shortens its window; lens A and B output does not depend on `--as-of` beyond the window; a later `--as-of` never moves a state backwards.
 4. Golden-file tests for the muscles section and the JSON.
 5. HTML: an automated check that every region id is present and coloured from the data, plus a rendered image checked by eye for each lens.
@@ -258,7 +257,7 @@ Deferred, with the reason:
 2. The exponential decay model with a fatigue threshold was replaced by recovery windows in days with one user multiplier.
 3. The feedback question is about the session just logged, not "today", and asks what limited performance. Soreness is stored as context only.
 4. `calibrate`, per-muscle parameters and the parameter log were removed; feedback is stored and tallied.
-5. "Programmed" became "listed in logged sessions", windows became calendar weeks, jokers were excluded from listed, and flags were capped.
+5. "Programmed versus performed" was dropped: the export only has rows for days trained and accessory rows are a menu. Lens A reports done work per calendar week, with capped flags.
 6. The next-session line became an earliest-date statement with a rule for a completed week.
 7. State-only commands no longer need a CSV, and state loss is detected through a revision stamped into the report.
 8. Questions were cut to one per export with skip and retire rules, and none when no human is present.
@@ -277,7 +276,6 @@ Kept against the review's advice: the HTML body diagram stays in this version, b
 7. `update` and `report` integration; project doc changes.
 8. Cold-user test.
 
-## 16. Open questions for the owner
+## 16. Open question for the owner
 
-1. Are unticked accessory rows a prescription he intends to do, or a menu to pick from? The answer decides whether "done under half of listed" is a useful flag or noise.
-2. Is sixteen the right granularity, in particular keeping forearms and adductors and splitting upper back from lats?
+Is sixteen the right granularity, in particular keeping forearms and adductors and splitting upper back from lats?
