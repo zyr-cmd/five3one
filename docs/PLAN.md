@@ -135,8 +135,8 @@ One JSON file stored in the owner's project (never in this repo), passed with `-
   "exercise_map": {"pec fly": {"chest": 1.0, "front_delts": 0.5}},
   "k": 1.0,
   "feedback": [
-    {"id": "fb-2026-01-10-hamstrings-pre", "recorded": "2026-01-10", "about_date": "2026-01-10",
-     "scope_type": "muscle", "scope": "hamstrings", "measure": "pre_session_soreness",
+    {"id": "fb-2026-01-10-hamstrings-limited", "recorded": "2026-01-10", "about_date": "2026-01-10",
+     "scope_type": "muscle", "scope": "hamstrings", "measure": "limited",
      "value": 2, "source": "chat", "quote": null}
   ],
   "answered": ["q-pre-2026-01-10"],
@@ -154,7 +154,8 @@ Rules:
 
 Measures:
 
-- `pre_session_soreness`: 0 to 3 for a muscle, as it was before a given session.
+- `limited`: 0 to 3 for a muscle, for how much it limited performance in a given session (0 not at all, 3 cut the work short). This is the recovery signal. Soreness is not used as one: it correlates poorly with loss of muscle function (Nosaka, Newton and Sacco 2002, Scand J Med Sci Sports 12:337-346).
+- `sore`: 0 to 3 for a muscle before a given session. Stored as context only; it does not move `k`.
 - `rir`: reps in reserve for an exercise on a date, with a set class.
 
 ## 7. Commands
@@ -191,7 +192,7 @@ At most **one** question per `update`, and none when no human is present.
 Priority:
 
 1. **Unmapped exercise.** The agent proposes a mapping; the human answers yes or no.
-2. **Pre-session soreness.** Asked about the session just logged, because that is when a prediction can be tested: "Before today's session, was anything still sore or limiting? Which, and how much (1 mild, 2 noticeable, 3 limiting)?" The answer is recorded against that date for each muscle named; "nothing" is recorded as zeros for the muscles the session's main and BBB lifts use.
+2. **Limited performance.** Asked about the session just logged, because that is when a prediction can be tested: "Did anything that wasn't recovered hold back a lift today? Which muscle, and how much (1 slightly, 2 clearly, 3 cut the work short)?" The answer is recorded against that date for each muscle named; "nothing" is recorded as zeros for the muscles the session's main and BBB lifts use. Soreness mentioned in the answer is stored separately as context.
 3. **Effort.** Reps in reserve on one BBB or accessory lift from the session just logged.
 
 Rules:
@@ -204,7 +205,7 @@ Rules:
 
 This version stores feedback and reports it against predictions; it does not fit anything.
 
-`muscles --lens recovery` shows a small tally once feedback exists: of the pre-session ratings recorded, how many fell in a window the model called likely recovered, uncertain or likely not recovered, and how many of each were rated sore. The agent uses that tally to propose a change to `k` to the human in plain terms ("you have been sore at the predicted-recovered point in 4 of 5 sessions; lengthen the windows by a quarter?"). One parameter, changed one step at a time.
+`muscles --lens recovery` shows a small tally once feedback exists: of the `limited` ratings recorded, how many fell in a window the model called likely recovered, uncertain or likely not recovered, and how many of each were rated 1 or above. The agent uses that tally to propose a change to `k` to the human in plain terms ("a muscle the model called recovered held you back in 4 of 5 sessions; lengthen the windows by a quarter?"). One parameter, changed one step at a time.
 
 ## 11. Outputs
 
@@ -255,7 +256,7 @@ Deferred, with the reason:
 
 1. Effort estimated from e1RM was removed; class weights and stated reps in reserve remain.
 2. The exponential decay model with a fatigue threshold was replaced by recovery windows in days with one user multiplier.
-3. Soreness is asked about the state before the session just logged, not "today".
+3. The feedback question is about the session just logged, not "today", and asks what limited performance. Soreness is stored as context only.
 4. `calibrate`, per-muscle parameters and the parameter log were removed; feedback is stored and tallied.
 5. "Programmed" became "listed in logged sessions", windows became calendar weeks, jokers were excluded from listed, and flags were capped.
 6. The next-session line became an earliest-date statement with a rule for a completed week.
