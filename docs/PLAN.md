@@ -46,7 +46,7 @@ Agreed experience (E), proposed on 2026-11-16 and accepted by the owner as reaso
 
 ## 3. Muscles and the exercise map (B1, B2, B3)
 
-- Sixteen muscle groups, each a region on the diagram: chest, front delts, side delts, rear delts, triceps, biceps, forearms, lats, upper back, lower back, abs, glutes, quads, hamstrings, adductors, calves.
+- Twenty-two muscle groups, each a region on the diagram: chest, front delts, side delts, rear delts, triceps, biceps, brachialis, brachioradialis, forearms, lats, traps, mid back, lower back, abs (including obliques), serratus, neck, glutes, quads, hamstrings, adductors, calves, tibialis. The list was set by the owner.
 - Each exercise maps to muscles with a weight: 1.0 for a primary mover, 0.5 for a secondary one. One set of bench is 1 chest set and 0.5 triceps set. Basis: Pelland et al. (Sports Medicine; 67 studies, 2,058 participants) compared counting indirect sets as 1, 0.5 and 0, and the 0.5 method predicted hypertrophy and strength gains best. Only those three values were tested, so 0.5 is the best of three, not a measured optimum, and no finer per-exercise weighting has evidence behind it. The study concerns adaptation; using the same weights for recovery dose is this plan's assumption. The agent can override any exercise's weights.
 - The default map is built against the owner's real exercise names and ships in code. Lookup ignores case, spacing and hyphens.
 - An exercise with no mapping is never guessed, and a partial muscle picture is never produced. The muscle commands stop with a structured error naming each unmapped exercise and the exact `map-set` command to fix it. The agent maps it (asking the owner if unsure) and reruns. `update` still writes the rest of the report and says the muscle output was withheld.
@@ -147,7 +147,7 @@ One JSON file in the owner's project, passed with `--state`. It holds only what 
 - **Muscle file:** its own CSV in the project, one row per muscle: done sets per week, direct sets per week, days per week, last hit, dose, and the two window dates. It is overwritten on each export and stamped with the export's last session date and the date it was generated. It stores dates, not states, so it does not go stale as days pass. It is not appended to: every export holds the full history, so any past table can be regenerated, and appended rows would silently disagree with the model after a parameter change.
 - **progress.md** gains one line only, the next-session line, so the report that every chat loads stays small.
 - **Next-session line:** the earliest date on which the muscles used by the next main lift and its BBB lift are past `lo`, and the date they are all past `hi`. Valid only while no later session is logged, and it says so.
-- **Body diagram:** front and back outlines with the sixteen regions, one panel per lens, the same numbers in a table underneath. Rendered from the JSON so the picture cannot disagree with the data.
+- **Body diagram:** front and back outlines with the twenty-two regions, one panel per lens, the same numbers in a table underneath. Rendered from the JSON so the picture cannot disagree with the data.
 - **Project docs:** one new row in the routing table for the muscle file; the update procedure gains `--state`, the save-back and sending the diagram.
 - **Weekly review task:** reads the program table. Wording to be shown to the owner before the task is changed.
 
@@ -180,7 +180,3 @@ B1 asked for something small. The feature is three lenses, one state file and th
 6. Body diagram.
 7. `update` integration and project doc changes.
 8. Independent code review, then a cold-user test: a fresh agent with only the project docs and a synthetic export runs the whole flow.
-
-## 13. Open question for the owner
-
-Is sixteen the right set of muscle groups, in particular keeping forearms and adductors and splitting upper back from lats?
