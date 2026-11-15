@@ -189,7 +189,11 @@ class ReportTests(Base):
                     + "\n## Status\n```\n" + status + "```\n"
                     + "\n## Recap (14 days before last session)\n```\n" + recap + "```\n")
         with open(out_path, encoding="utf-8") as fh:
-            self.assertEqual(fh.read(), expected)
+            text = fh.read()
+        self.assertTrue(text.startswith(expected))
+        tail = text[len(expected):]
+        self.assertTrue(tail.startswith("\n## Next session\n"))
+        self.assertEqual(tail.count("\n"), 4)  # heading, one line, one pointer line
 
     def test_report_prints_without_out(self):
         code, stdout, _ = run_cli(self.csv, "report", "--as-of", "2026-01-04")

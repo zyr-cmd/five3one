@@ -76,6 +76,17 @@ def raw_rows(path):
         return cols, list(reader)
 
 
+def is_done(e):
+    """The owner's rule for every set type: ticked, and reps above zero."""
+    return e["completed"] is True and (e["reps"] or 0) > 0
+
+
+def is_not_done(e):
+    """Explicitly not done: unticked, or ticked with 0 reps. A blank tick is neither
+    done nor not done (status unknown). Not done never means failed."""
+    return e["completed"] is False or (e["completed"] is True and e["reps"] == 0)
+
+
 def canonical_names(events):
     latest = {}
     for e in events:

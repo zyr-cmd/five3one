@@ -1,6 +1,6 @@
 # Muscle map: design plan (v3)
 
-Status: the owner has settled the muscle groups and the additions; awaiting his go-ahead to build. No feature code exists.
+Status: built. Where the code differs from this plan, the package docstring (`five3one/__init__.py`) is current. Differences: five dose bands instead of an unspecified table; a fourth recovery state, "not trained recently", for muscles last hit more than 14 days ago; the dismiss command is `unknown-dismiss`.
 
 This version is built from the owner's brief. Section 1 is the brief. Every design element in sections 2 to 8 names the brief line it serves. Section 9 lists the three additions that serve no line of the brief; the owner has accepted all three.
 

@@ -44,6 +44,36 @@ DRILL-DOWN COMMANDS
   list-lifts                      Every exercise name, flagging spelling variants.
   dump      [--date YYYY-MM-DD]   Parsed per-set rows, to check how an export is read.
 
+MUSCLE COMMANDS (design: docs/PLAN.md; evidence: docs/SOURCES.md)
+  Only done sets count: ticked AND reps above zero. Listed-but-not-done sets are ignored.
+  muscles   --lens program [--weeks N] [--as-of D]   Done sets per week per muscle.
+            --lens session [--date D]                What one session trained.
+            --lens recovery --as-of D                Last hit, recovery window, state, and the
+                                                     next-session line. --as-of is required.
+            [--state PATH] [--html PATH]             --html writes the body diagram.
+  explain   --muscle M [--as-of D] [--state PATH]    Sets, parameters and feedback behind
+                                                     one muscle's figures.
+  unknowns  [--as-of D] [--notes-since D] [--state PATH]
+            What the tool does not know about recent sessions (did a muscle limit a lift,
+            reps in reserve, notes to read), each with what it changes and the command
+            that records it. Ask the owner what is worth asking; none are required.
+  update    also takes --state PATH, --state-revision N (the state_revision in the stored
+            muscles.csv; refuses if the state file is missing or older) and --notes-since D.
+            It writes muscles.csv and muscles.html beside progress.md and prints unknowns.
+  An exercise with done sets and no muscle mapping stops the muscle commands with the
+  exact map-set command to run. Nothing is guessed.
+
+STATE COMMANDS (no CSV argument; each bumps the state revision; save the file back)
+  map-set --state PATH "EXERCISE" MUSCLE=1 [MUSCLE=0.5 ...]     map-list [--state PATH]
+  param-set --state PATH NAME VALUE --reason TEXT [--as-of D]   param-list [--state PATH] [--all]
+  feedback-add --state PATH --measure limited|rir|sore --about-date D --scope S --value V
+               [--source chat|note] [--quote TEXT] [--as-of D]
+       limited: scope = muscle id, value 0-3 (how much it held back a lift that session);
+                "--scope all --value 0" records that nothing was limiting.
+       rir:     scope = exercise name, value = reps in reserve on its hardest set.
+       sore:    scope = muscle id, 0-3. Context only: soreness is not a recovery signal.
+  unknown-dismiss --state PATH ID
+
 ERRORS  Non-zero exit. With --json the error is {"error": "..."} on stdout.
 EXIT CODES  0 ok, 1 error (bad CSV, rejected ingest, unknown lift), 2 usage.
 
@@ -78,6 +108,12 @@ LAYOUT
   report     status, recap, report, update
   ingest     ingest (compare a new export with a stored copy)
   drilldown  session, lift, cycle, accessory, adherence, list-lifts, dump
+  muscles    muscle groups, exercise map, lenses A (program) and B (session)
+  params     every numeric assumption of the recovery lens, with its basis
+  recovery   lens C, next-session line, prediction tally, unknowns
+  state      the state file
+  musclecmd  muscle and state commands
+  render     the HTML body diagram
   cli        argument parsing and dispatch
 """
 

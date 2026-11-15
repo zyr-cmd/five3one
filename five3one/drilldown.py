@@ -4,7 +4,8 @@ import json
 from collections import Counter, defaultdict
 
 from .model import detect_blocks, resolve_lift, top_e1rm
-from .parse import canonical_names, events_for_dates, group_rows, main_lift_keys, session_dates
+from .parse import (canonical_names, events_for_dates, group_rows, is_done, is_not_done,
+                    main_lift_keys, session_dates)
 from .text import die, fmt, fmt_bbb, fmt_sets, norm, short_note
 
 
@@ -35,7 +36,7 @@ def cmd_session(events, args):
     print(hdr)
     for ex in result["exercises"]:
         sets_str = " ".join("%sx%s%s" % (fmt(s["weight"]), s["reps"],
-                            "" if s["completed"] else "*") for s in ex["sets"])
+                            "" if is_done(s) else "*") for s in ex["sets"])
         line = "  %s [%s]: %s" % (ex["name"], ex["set_type"], sets_str)
         if ex.get("top_set_e1rm"):
             line += "   (top set e1RM ~%skg)" % ex["top_set_e1rm"]
@@ -65,7 +66,7 @@ def cmd_lift(events, args):
         rows.append({
             "date": str(d), "cycle": sets[0]["cycle"], "week": sets[0]["week"],
             "top_set": "%sx%skg%s" % (top["reps"], fmt(top["weight"]),
-                                      "" if top["completed"] is not False else " (not completed)"),
+                                      " (not completed)" if is_not_done(top) else ""),
             "top_set_e1rm": top_e1rm(sets),
             "jokers": fmt_sets(jok) if jok else None,
         })
@@ -137,7 +138,7 @@ def cmd_accessory(events, args):
     rows = []
     for d, key, st, sets in group_rows(acc):
         rows.append({"date": str(d), "name": names[key], "sets": len(sets),
-                     "sets_ticked": sum(1 for s in sets if s["completed"]),
+                     "sets_ticked": sum(1 for s in sets if is_done(s)),
                      "total_reps": sum(s["reps"] or 0 for s in sets),
                      "volume_kg": sum((s["weight"] or 0) * (s["reps"] or 0) for s in sets)})
     if args.json:
@@ -155,14 +156,14 @@ def cmd_adherence(events, args):
 
     def rate(rows):
         known = [e for e in rows if e["completed"] is not None]
-        done = sum(1 for e in known if e["completed"])
+        done = sum(1 for e in known if is_done(e))
         return {"sets": len(known), "completed": done, "unknown_status": len(rows) - len(known),
                 "rate": round(done / len(known), 3) if known else None}
     main = [e for e in ev if e["is_main_lift_row"]]
     acc = [e for e in ev if not e["is_main_lift_row"]]
     missed = [{"date": str(e["date"]), "exercise": names[e["key"]], "set_type": e["set_type"],
                "reps": e["reps"], "weight": e["weight"]}
-              for e in main if e["completed"] is False]
+              for e in main if is_not_done(e)]
     result = {"main_lifts": rate(main), "accessories": rate(acc), "main_not_completed": missed}
     if args.json:
         print(json.dumps(result, indent=2))

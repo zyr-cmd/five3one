@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 
-from .parse import canonical_names, group_rows, main_lift_keys, session_dates
+from .parse import canonical_names, group_rows, is_not_done, main_lift_keys, session_dates
 from .text import norm
 
 BLOCK_GAP_DAYS = 21
@@ -26,7 +26,7 @@ def detect_blocks(events, gap_days=BLOCK_GAP_DAYS):
 
 def top_e1rm(sets):
     top = sets[-1]
-    return None if top["completed"] is False else epley(top["weight"], top["reps"])
+    return None if is_not_done(top) else epley(top["weight"], top["reps"])
 
 
 def e1rm_history(events):
