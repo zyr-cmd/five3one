@@ -147,7 +147,6 @@ def cmd_accessory(events, args):
     for r in rows:
         print("%-12s%-30s%-6d%-8d%-6d%.0f" % (r["date"], r["name"], r["sets"], r["sets_ticked"],
                                               r["total_reps"], r["volume_kg"]))
-    print("(accessory ticks are unreliable: sets are often done but left unticked)")
 
 
 def cmd_adherence(events, args):
@@ -172,7 +171,7 @@ def cmd_adherence(events, args):
     print("Main-lift sets completed: %d/%d (%s)" % (m["completed"], m["sets"],
           "n/a" if m["rate"] is None else "%.1f%%" % (m["rate"] * 100)))
     a = result["accessories"]
-    print("Accessory sets ticked: %d/%d (unreliable, often left unticked)" % (a["completed"], a["sets"]))
+    print("Accessory sets ticked: %d/%d" % (a["completed"], a["sets"]))
     if m["unknown_status"] or a["unknown_status"]:
         print("Sets with no completed flag (excluded): %d" % (m["unknown_status"] + a["unknown_status"]))
     if missed:

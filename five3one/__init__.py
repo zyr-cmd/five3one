@@ -65,8 +65,9 @@ CSV QUIRKS (verified against real exports Aug-Nov 2026; re-verify if the format 
    w * (1 + reps / 30) on that set. Compare e1RM across weeks only roughly
    (different rep targets). If a template's last main set is not an AMRAP, the
    e1RM is not meaningful.
-7. SetCompleted is per set. Accessory sets are often left unticked even when
-   done, so accessory adherence is NOT a reliable measure; main-lift rows are.
+7. SetCompleted is per set and is the record for every set type, accessories
+   included: ticked = done, unticked = not done (not "failed"). A set logged
+   with 0 reps is not done, whatever its tick.
 8. BBB for a lift is done on ANOTHER lift's main day (frequency swap), so a
    lift's BBB history is not on the same dates as its main sets.
 
