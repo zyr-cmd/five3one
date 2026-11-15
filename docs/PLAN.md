@@ -1,6 +1,6 @@
 # Muscle map: design plan (v3)
 
-Status: built. Where the code differs from this plan, the package docstring (`five3one/__init__.py`) is current. Differences: five dose bands instead of an unspecified table; a fourth recovery state, "not trained recently", for muscles last hit more than 14 days ago; the dismiss command is `unknown-dismiss`.
+Status: built. Where the code differs from this plan, the package docstring (`five3one/__init__.py`) is current. Differences: the body diagram uses the react-native-body-highlighter artwork (MIT), with deltoids, biceps/brachialis and trapezius/mid back split by clip lines; five dose bands instead of an unspecified table; a fourth recovery state, "not trained recently", for muscles last hit more than 14 days ago; the dismiss command is `unknown-dismiss`.
 
 This version is built from the owner's brief. Section 1 is the brief. Every design element in sections 2 to 8 names the brief line it serves. Section 9 lists the three additions that serve no line of the brief; the owner has accepted all three.
 
@@ -185,4 +185,4 @@ B1 asked for something small. The feature is three lenses, one state file and th
 
 1. **Cold-user test (build step 8) has not been run.** A fresh agent, given only the project's docs (its routing doc and its update procedure) and a synthetic export, should: process the export end to end, state the next-session line, choose and ask questions, record the answers, save the state back, explain one muscle's figures with `explain`, and apply a tuning request. Run it a second time with the state file deleted; the `update` command must refuse. The fixture needs a stored report, muscle file and state file at revision 2, plus a new export that adds one session containing a done exercise with no mapping and a note saying a muscle limited a lift. Fix whatever friction it reports in the docs or the tool's wording.
 2. **The weekly review task's prompt has not been changed** to read the muscle file. Show the owner the wording first.
-3. Smaller review notes left open: `--html` ignores `--date` for the session panel; small regions (brachialis, adductors) are hard to tap on a phone; `uncounted_other_sets` appears only in JSON.
+3. Smaller review notes left open: `--html` ignores `--date` for the session panel; brachialis is a small region and may be hard to tap on a phone; `uncounted_other_sets` appears only in JSON.

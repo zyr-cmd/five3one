@@ -1,6 +1,7 @@
 """The body diagram: one self-contained HTML file rendered from build_all() output.
 
-Front and back figures with one region per muscle group, one panel per lens, and the
+Front and back figures (artwork: react-native-body-highlighter, MIT; see bodyart.py) with
+one region per muscle group, one panel per lens, and the
 same numbers in a table under each panel, so the picture cannot disagree with the data.
 Sequential lenses (program, session) use one blue ramp, light to dark; the recovery
 lens uses three status colours that always appear with their text label.
@@ -11,83 +12,122 @@ from html import escape
 from .muscles import LABEL, MUSCLE_IDS
 from .recovery import NOT, RECOVERED, UNCERTAIN, UNTRAINED, text_next
 
-# Region geometry in a 200 x 400 box, left half only; the right half is mirrored.
-# ("e", cx, cy, rx, ry) ellipse | ("p", [(x, y), ...]) polygon | ("r", x, y, w, h, radius) rect
-_FRONT = {
-    "neck": [("r", 92, 44, 16, 13, 3)],
-    "traps": [("p", [(91, 50), (72, 62), (91, 62)])],
-    "front_delts": [("e", 67, 73, 9, 11)],
-    "side_delts": [("e", 56, 76, 5, 11)],
-    "chest": [("r", 77, 64, 21, 27, 7)],
-    "serratus": [("p", [(73, 94), (82, 94), (83, 120), (76, 116)])],
-    "abs": [("r", 85, 94, 15, 58, 5)],
-    "biceps": [("e", 59, 108, 7.5, 18)],
-    "brachialis": [("e", 49.5, 117, 3.2, 10)],
-    "brachioradialis": [("e", 49, 148, 4.5, 13)],
-    "forearms": [("e", 57.5, 156, 5.5, 20)],
-    "quads": [("e", 83, 218, 12.5, 37)],
-    "adductors": [("e", 96, 200, 3.4, 21)],
-    "tibialis": [("e", 84, 302, 5.5, 30)],
+# Artwork: react-native-body-highlighter (MIT; see bodyart.py). Its pieces are assigned to
+# muscle groups below. Where one piece covers two groups it is drawn twice, each copy clipped
+# to one side of a cut line; the path data itself is never edited.
+_SILHOUETTE = {"head", "hair", "hands", "feet", "ankles", "knees"}
+_MIDLINE = {"front": 364.25, "back": 1083.5}
+_VIEWBOX = {"front": "40 85 650 1270", "back": "760 85 650 1270"}
+# (view, slug) -> muscle, or {index: muscle} with None as the default for other indices.
+_ASSIGN = {
+    "front": {"chest": "chest", "abs": "abs", "triceps": "triceps", "neck": "neck",
+              "trapezius": "traps", "adductors": "adductors", "quadriceps": "quads",
+              "tibialis": "tibialis", "calves": "calves",
+              "obliques": {0: "serratus", 1: "serratus", 3: "serratus", None: "abs"},
+              "forearm": {0: "brachioradialis", None: "forearms"}},
+    "back": {"neck": "neck", "triceps": "triceps", "lower-back": "lower_back",
+             "forearm": "forearms", "gluteal": "glutes", "adductors": "adductors",
+             "hamstring": "hamstrings", "calves": "calves",
+             # piece 0 is infraspinatus (scapula); the others are lats and teres major
+             "upper-back": {0: "mid_back", None: "lats"}},
 }
-_BACK = {
-    "neck": [("r", 92, 44, 16, 13, 3)],
-    "traps": [("p", [(100, 50), (72, 61), (78, 71), (100, 67)])],
-    "rear_delts": [("e", 67, 75, 9, 11)],
-    "side_delts": [("e", 56, 78, 5, 11)],
-    "mid_back": [("r", 81, 71, 19, 27, 5)],
-    "lats": [("p", [(73, 88), (79, 88), (79, 101), (99, 101), (99, 138), (83, 130), (75, 110)])],
-    "lower_back": [("r", 85, 141, 15, 22, 4)],
-    "triceps": [("e", 59, 108, 8, 19)],
-    "forearms": [("e", 55, 153, 7.5, 21)],
-    "glutes": [("e", 87, 181, 12.5, 15)],
-    "hamstrings": [("e", 84, 232, 12, 30)],
-    "adductors": [("e", 96.5, 216, 3.2, 17)],
-    "calves": [("e", 84, 300, 9.5, 30)],
+# (view, slug) -> (a, b, muscle on the side containing ref, ref, muscle on the other side).
+# Points are for the figure's left-hand half; the right-hand half is mirrored at the midline.
+_CUTS = {
+    ("front", "deltoids"): ((226, 290), (212, 410), "side_delts", (195, 350), "front_delts"),
+    ("front", "biceps"): ((180, 430), (212, 500), "brachialis", (184, 490), "biceps"),
+    ("back", "deltoids"): ((944, 290), (928, 410), "side_delts", (914, 360), "rear_delts"),
+    ("back", "trapezius"): ((960, 365), (1090, 365), "mid_back", (1050, 450), "traps"),
 }
-# Neutral silhouette under the regions (left half; mirrored).
-_BODY = [("e", 100, 27, 15, 17), ("r", 92, 42, 16, 16, 3), ("r", 71, 60, 29, 106, 10),
-         ("e", 57, 110, 11, 52), ("e", 55, 156, 9, 30), ("e", 53, 190, 6, 8),
-         ("e", 85, 222, 15, 62), ("e", 84, 300, 11, 40), ("e", 82, 346, 10, 6)]
 
 
-def _shape(spec, mirror, attrs):
-    kind = spec[0]
-    if kind == "e":
-        _, cx, cy, rx, ry = spec
-        cx = 200 - cx if mirror else cx
-        return '<ellipse cx="%g" cy="%g" rx="%g" ry="%g" %s/>' % (cx, cy, rx, ry, attrs)
-    if kind == "r":
-        _, x, y, w, h, rad = spec
-        x = 200 - x - w if mirror else x
-        return '<rect x="%g" y="%g" width="%g" height="%g" rx="%g" %s/>' % (x, y, w, h, rad, attrs)
-    pts = [((200 - x) if mirror else x, y) for x, y in spec[1]]
-    return '<polygon points="%s" %s/>' % (" ".join("%g,%g" % p for p in pts), attrs)
+def _half_planes(a, b):
+    """The two half-planes either side of line a-b, as large polygons."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    n = (dx * dx + dy * dy) ** 0.5
+    dx, dy = dx / n, dy / n
+    nx, ny = -dy, dx
+    A = (a[0] - 3000 * dx, a[1] - 3000 * dy)
+    B = (b[0] + 3000 * dx, b[1] + 3000 * dy)
+    return [[A, B, (B[0] + 6000 * nx, B[1] + 6000 * ny), (A[0] + 6000 * nx, A[1] + 6000 * ny)],
+            [A, B, (B[0] - 6000 * nx, B[1] - 6000 * ny), (A[0] - 6000 * nx, A[1] - 6000 * ny)]]
 
 
-def _figure(regions, cls_of, tip_of, title):
-    out = ['<svg viewBox="40 6 120 350" role="img" aria-label="%s">' % escape(title)]
-    for spec in _BODY:
-        out.append(_shape(spec, False, 'class="body"'))
-        if not (spec[0] == "e" and spec[1] == 100) and not (spec[0] == "r" and spec[1] == 92):
-            out.append(_shape(spec, True, 'class="body"'))
-    for m in MUSCLE_IDS:
-        for spec in regions.get(m, []):
-            attrs = 'class="m %s" data-tip="%s"' % (cls_of(m), escape(tip_of(m), quote=True))
-            centred = spec[0] == "r" and spec[1] == 92
-            tip = "<title>%s</title>" % escape(tip_of(m))
-            for mirror in ((False,) if centred else (False, True)):
-                shape = _shape(spec, mirror, attrs)
-                out.append(shape[:-2] + ">" + tip + "</" + shape[1:shape.index(" ")] + ">")
-    out.append("</svg>")
-    return "".join(out)
+def _inside(poly, p):
+    """Point-in-polygon (ray cast)."""
+    x, y, hit = p[0], p[1], False
+    for i in range(len(poly)):
+        (x1, y1), (x2, y2) = poly[i], poly[i - 1]
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            hit = not hit
+    return hit
+
+
+def _pieces(view):
+    """[(muscle or None, path, clip polygon or None, seam line or None)]; None = silhouette."""
+    from .bodyart import BACK, FRONT
+    art, mid, out = FRONT if view == "front" else BACK, _MIDLINE[view], []
+    for slug, side, idx, d in art:
+        mirror = side == "right"
+
+        def mx(p):
+            return (2 * mid - p[0], p[1]) if mirror else p
+        if slug in _SILHOUETTE:
+            out.append((None, d, None, None))
+        elif (view, slug) in _CUTS:
+            a, b, m1, ref, m2 = _CUTS[(view, slug)]
+            p1, p2 = _half_planes(mx(a), mx(b))
+            if not _inside(p1, mx(ref)):
+                p1, p2 = p2, p1
+            out.append((m1, d, p1, None))
+            out.append((m2, d, p2, (mx(a), mx(b))))
+        else:
+            rule = _ASSIGN[view][slug]
+            out.append((rule if isinstance(rule, str) else rule.get(idx, rule[None]), d, None, None))
+    return out
+
+
+_FRONT = {}
+_BACK = {}
+for _view, _dest in (("front", _FRONT), ("back", _BACK)):
+    for _m, _d, _clip, _seam in _pieces(_view):
+        if _m:
+            _dest.setdefault(_m, []).append((_d, _clip))
+
+
+def _figure(view, cls_of, tip_of, title):
+    uid = "".join(c if c.isalnum() else "-" for c in title.lower())
+    defs, body, regions, seams = [], [], [], []
+    for n, (m, d, clip, seam) in enumerate(_pieces(view)):
+        if m is None:
+            body.append('<path class="body" d="%s"/>' % d)
+            continue
+        cp = ""
+        if clip:
+            cid = "%s-%d" % (uid, n)
+            defs.append('<clipPath id="%s"><polygon points="%s"/></clipPath>'
+                        % (cid, " ".join("%.1f,%.1f" % p for p in clip)))
+            cp = ' clip-path="url(#%s)"' % cid
+        tip = escape(tip_of(m), quote=True)
+        regions.append('<path class="m %s" data-tip="%s" d="%s"%s><title>%s</title></path>'
+                       % (cls_of(m), tip, d, cp, escape(tip_of(m))))
+        if seam:  # a visible line where one piece is split, clipped to that piece
+            sid = "%s-%d-s" % (uid, n)
+            defs.append('<clipPath id="%s"><path d="%s"/></clipPath>' % (sid, d))
+            (x1, y1), (x2, y2) = seam
+            seams.append('<line class="seam" x1="%g" y1="%g" x2="%g" y2="%g" clip-path="url(#%s)"/>'
+                         % (x1, y1, x2, y2, sid))
+    return ('<svg viewBox="%s" role="img" aria-label="%s"><defs>%s</defs>%s%s%s</svg>'
+            % (_VIEWBOX[view], escape(title), "".join(defs), "".join(body), "".join(regions),
+               "".join(seams)))
 
 
 def _figures(cls_of, tip_of, name):
     return ('<div class="figs"><figure>%s<figcaption>Front</figcaption></figure>'
             '<figure>%s<figcaption>Back</figcaption></figure></div>'
             '<p class="tip" aria-live="polite">Tap a muscle for its figures.</p>'
-            % (_figure(_FRONT, cls_of, tip_of, name + ", front"),
-               _figure(_BACK, cls_of, tip_of, name + ", back")))
+            % (_figure("front", cls_of, tip_of, name + ", front"),
+               _figure("back", cls_of, tip_of, name + ", back")))
 
 
 def _bins(values):
@@ -227,8 +267,9 @@ figure{margin:0;flex:1;max-width:250px;text-align:center}
 figcaption{color:var(--muted);font-size:12px}
 svg{width:100%%;height:auto;display:block}
 .body{fill:var(--body)}
-.m{stroke:var(--surface);stroke-width:1.2;cursor:pointer}
-.m:hover,.m.on{stroke:var(--ink);stroke-width:1.4}
+.m,.body{stroke:var(--surface);stroke-width:1px;vector-effect:non-scaling-stroke}.m{cursor:pointer}
+.seam{stroke:var(--surface);stroke-width:1.5px;vector-effect:non-scaling-stroke;pointer-events:none}
+.m:hover,.m.on{stroke:var(--ink);stroke-width:1.5px}
 .q0{fill:var(--q0)}.q1{fill:var(--q1)}.q2{fill:var(--q2)}.q3{fill:var(--q3)}.q4{fill:var(--q4)}.q5{fill:var(--q5)}
 .s-not{fill:var(--not)}.s-unc{fill:var(--unc)}.s-rec{fill:var(--rec)}
 .sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px;

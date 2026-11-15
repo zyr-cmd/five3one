@@ -439,6 +439,18 @@ class RenderTests(Base):
         self.assertIn("Chest: 3 sets (Bench Press x3)", html)
         self.assertNotIn("http", html.replace("http://www.w3.org", ""))  # self-contained
 
+    def test_artwork_split_pieces_and_unique_clip_ids(self):
+        import re
+        from five3one.render import _pieces
+        for view in ("front", "back"):
+            for m, _, clip, seam in _pieces(view):
+                self.assertTrue(m is None or m in mu.MUSCLE_IDS)
+        html = render_html(mc.build_all(self.ev, None, date(2026, 1, 3)))
+        ids = re.findall(r'<clipPath id="([^"]+)"', html)
+        self.assertEqual(len(ids), len(set(ids)))
+        for m in ("front_delts", "side_delts", "rear_delts", "brachialis", "mid_back", "traps"):
+            self.assertIn(mu.LABEL[m] + ":", html)
+
 
 if __name__ == "__main__":
     unittest.main()
