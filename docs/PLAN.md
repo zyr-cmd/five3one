@@ -180,3 +180,9 @@ B1 asked for something small. The feature is three lenses, one state file and th
 6. Body diagram.
 7. `update` integration and project doc changes.
 8. Independent code review, then a cold-user test: a fresh agent with only the project docs and a synthetic export runs the whole flow.
+
+## Outstanding (as of 2026-11-16)
+
+1. **Cold-user test (build step 8) has not been run.** A fresh agent, given only the project's docs (its routing doc and its update procedure) and a synthetic export, should: process the export end to end, state the next-session line, choose and ask questions, record the answers, save the state back, explain one muscle's figures with `explain`, and apply a tuning request. Run it a second time with the state file deleted; the `update` command must refuse. The fixture needs a stored report, muscle file and state file at revision 2, plus a new export that adds one session containing a done exercise with no mapping and a note saying a muscle limited a lift. Fix whatever friction it reports in the docs or the tool's wording.
+2. **The weekly review task's prompt has not been changed** to read the muscle file. Show the owner the wording first.
+3. Smaller review notes left open: `--html` ignores `--date` for the session panel; small regions (brachialis, adductors) are hard to tap on a phone; `uncounted_other_sets` appears only in JSON.
