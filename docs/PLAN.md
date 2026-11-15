@@ -1,8 +1,8 @@
 # Muscle map: design plan (v3)
 
-Status: awaiting the owner's agreement. No feature code exists.
+Status: the owner has settled the muscle groups and the additions; awaiting his go-ahead to build. No feature code exists.
 
-This version is built from the owner's brief. Section 1 is the brief. Every design element in sections 2 to 8 names the brief line it serves. Anything that serves no line is in section 9 as a proposed addition for the owner to accept or reject.
+This version is built from the owner's brief. Section 1 is the brief. Every design element in sections 2 to 8 names the brief line it serves. Section 9 lists the three additions that serve no line of the brief; the owner has accepted all three.
 
 ## 1. The brief
 
@@ -151,7 +151,7 @@ One JSON file in the owner's project, passed with `--state`. It holds only what 
 - **Project docs:** one new row in the routing table for the muscle file; the update procedure gains `--state`, the save-back and sending the diagram.
 - **Weekly review task:** reads the program table. Wording to be shown to the owner before the task is changed.
 
-## 9. Proposed additions (not in the brief; owner to accept or reject each)
+## 9. Additions beyond the brief (accepted by the owner on 2026-11-16)
 
 | # | Addition | Why | Cost |
 |---|---|---|---|
