@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for five3one.py using small synthetic exports (no personal data).
+"""Tests for the five3one package using small synthetic exports (no personal data).
 
-Run: python3 -I test_five3one.py   (five3one.py must sit in the same folder)
+Run from the repo root: python3 -m pytest   (or python3 tests/test_five3one.py)
 """
-import contextlib
-import io
 import json
 import os
 import subprocess
@@ -13,8 +11,8 @@ import tempfile
 import unittest
 from datetime import date
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 import five3one as f  # noqa: E402
 
 HEADER = "Date,Name,Set,SetCompleted,Reps,Weights,CycleNr,WeekNr,Notes\n"
@@ -28,7 +26,7 @@ def write_csv(dirpath, name, rows):
 
 
 def run_cli(*argv):
-    p = subprocess.run([sys.executable, "-I", os.path.join(HERE, "five3one.py"), *argv],
+    p = subprocess.run([sys.executable, "-m", "five3one", *argv], cwd=ROOT,
                        capture_output=True, text=True)
     return p.returncode, p.stdout, p.stderr
 
@@ -224,14 +222,6 @@ class UpdateTests(Base):
         self.assertEqual(code, 1)
         self.assertIn("possible data loss", err)
         self.assertFalse(os.path.exists(os.path.join(self.out, "progress.md")))
-
-    def test_update_works_piped_from_stdin(self):
-        with open(os.path.join(HERE, "five3one.py"), encoding="utf-8") as fh:
-            src = fh.read()
-        p = subprocess.run([sys.executable, "-I", "-", self.csv, "update", "--as-of", "2026-01-04",
-                            "--out-dir", self.out], input=src, capture_output=True, text=True)
-        self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertTrue(os.path.exists(os.path.join(self.out, "progress.md")))
 
 
 class AdherenceTests(Base):
