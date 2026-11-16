@@ -38,29 +38,52 @@ def _rir_lookup(state):
 RIR_KINDS = ("joker", "bbb", "accessory")  # the kinds an effort question covers
 
 
-def set_stimulus(row, params, rir_by):
-    """(stimulus weight, parameter used). Stated reps in reserve beat the set kind for
-    joker, BBB and accessory sets; main work sets and the top set keep their own weights."""
-    rir = rir_by.get((str(row["date"]), norm(row["key"]))) if row["kind"] in RIR_KINDS else None
+def shortfalls(rows):
+    """{(date, norm(key)): sets} for joker, BBB and accessory work in which a done set fell
+    short of the reps of an earlier done set at the same or a heavier weight that session
+    (e.g. 70x12 70x12 70x10). That is read as at or near failure, so it is not asked about."""
+    groups = defaultdict(list)
+    for r in rows:
+        if r["kind"] in RIR_KINDS:
+            groups[(str(r["date"]), norm(r["key"]))].append(r)
+    out = {}
+    for k, sets in groups.items():
+        sets = sorted(sets, key=lambda r: r["order"])
+        for i, r in enumerate(sets):
+            if any(e["weight"] >= r["weight"] and int(e["reps"]) > int(r["reps"]) for e in sets[:i]):
+                out[k] = " ".join("%gx%s" % (x["weight"], x["reps"]) for x in sets)
+                break
+    return out
+
+
+def set_stimulus(row, params, rir_by, short=None):
+    """(stimulus weight, parameter used, effort source). Stated reps in reserve beat a rep
+    shortfall, which beats the set kind, for joker, BBB and accessory sets; main work sets
+    and the top set keep their own weights."""
+    key = (str(row["date"]), norm(row["key"]))
+    rir = rir_by.get(key) if row["kind"] in RIR_KINDS else None
     if rir is not None:
         name = "rir.0_1" if rir <= 1 else "rir.2_3" if rir <= 3 else "rir.4_plus"
-        return params[name], name
+        return params[name], name, "stated"
+    if row["kind"] in RIR_KINDS and short and key in short:
+        return params["rir.0_1"], "rir.0_1", "inferred: reps fell short"
     name = "stim.main_top" if row["top"] else "stim." + row["kind"]
-    return params[name], name
+    return params[name], name, None
 
 
 def daily_doses(rows, params, state=None):
     """{muscle: {date: {"dose": x, "sets": [detail...]}}}"""
     rir_by = _rir_lookup(state)
+    short = shortfalls(rows)
     out = {m: {} for m in MUSCLE_IDS}
     for r in rows:
-        stim, pname = set_stimulus(r, params, rir_by)
+        stim, pname, source = set_stimulus(r, params, rir_by, short)
         for m, w in r["muscles"].items():
             day = out[m].setdefault(r["date"], {"dose": 0.0, "sets": []})
             day["dose"] += stim * w
             day["sets"].append({"exercise": r["name"], "kind": "main_top" if r["top"] else r["kind"],
                                 "set": "%gx%s" % (r["weight"], r["reps"]), "muscle_weight": w,
-                                "stimulus": stim, "stimulus_param": pname,
+                                "stimulus": stim, "stimulus_param": pname, "effort": source,
                                 "dose": round(stim * w, 3)})
     return out
 
@@ -348,9 +371,10 @@ def unknowns(events, emap, params, state, as_of, notes_since=None, state_path="S
                 x["sets"].append("%gx%s" % (r["weight"], r["reps"]))
                 x["dose"] += sum(r["muscles"].values())
                 x["muscles"].update(r["muscles"])
+        short = shortfalls(rows)
         for key, x in sorted(effort.items(), key=lambda kv: -kv[1]["dose"]):
             uid = "rir:%s:%s" % (latest, norm(key))
-            if uid in closed:
+            if uid in closed or (str(latest), norm(key)) in short:
                 continue
             out.append({"id": uid, "type": "effort", "about_date": str(latest),
                         "exercise": names[key],

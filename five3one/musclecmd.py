@@ -84,9 +84,17 @@ def cmd_muscles(events, args):
     state, err = _state_or_die(args)
     if err:
         return err
+    if not args.lens and not args.html:
+        return die(args, "give --lens program|session|recovery, --html PATH, or both")
+    if args.date and args.lens != "session":
+        return die(args, "--date picks the session for --lens session; for the date to assess "
+                         "on, use --as-of")
+    res, text = None, None
     try:
         emap = resolve_map(state)
-        if args.lens == "program":
+        if not args.lens:
+            pass
+        elif args.lens == "program":
             res = lens_program(events, emap, args.as_of, args.weeks)
             text = text_program(res)
         elif args.lens == "session":
@@ -107,9 +115,10 @@ def cmd_muscles(events, args):
     except (ValueError, OSError) as exc:
         return die(args, str(exc))
     if args.json:
-        print(json.dumps(res, indent=2))
+        print(json.dumps(res if res is not None else {"wrote": args.html}, indent=2))
     else:
-        print(text)
+        if text:
+            print(text)
         if args.html:
             print("wrote %s" % args.html)
 
@@ -157,7 +166,8 @@ def cmd_explain(events, args):
         for s in r["sets"]:
             print("    %-26s %-9s %-10s %g x %g (%s) = %g"
                   % (s["exercise"], s["set"], s["kind"], s["muscle_weight"], s["stimulus"],
-                     s["stimulus_param"], s["dose"]))
+                     s["stimulus_param"] + (", " + s["effort"] if s.get("effort") else ""),
+                     s["dose"]))
     print("  Program (%s to %s): %.1f sets/week, %.1f direct, %.1f days/week"
           % (prog["window"]["start"], prog["window"]["end"], p["sets_per_week"],
              p["direct_sets_per_week"], p["days_per_week"]))

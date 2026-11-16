@@ -39,7 +39,11 @@ def build_parser():
     s.add_argument("--stale-days", type=int, default=3)
     s.add_argument("--state", help="state file (JSON) from the project")
     s = sub.add_parser("update", parents=[common])
-    s.add_argument("--out-dir", required=True)
+    s.add_argument("--prev", metavar="DIR",
+                   help="folder holding the stored progress.md, muscles.csv and muscle-state.json "
+                        "(any may be absent). Supplies --min-sessions, --notes-since, "
+                        "--state-revision and --state, and is the default --out-dir")
+    s.add_argument("--out-dir")
     s.add_argument("--min-sessions", type=int)
     s.add_argument("--state", help="state file (JSON) from the project")
     s.add_argument("--state-revision", type=int,
@@ -69,7 +73,8 @@ def build_parser():
     s = sub.add_parser("dump", parents=[common])
     s.add_argument("--date", type=parse_date)
     s = sub.add_parser("muscles", parents=[common])
-    s.add_argument("--lens", required=True, choices=["program", "session", "recovery"])
+    s.add_argument("--lens", choices=["program", "session", "recovery"],
+                   help="print one lens; optional when --html is given")
     s.add_argument("--date", type=parse_date, help="session date for --lens session")
     s.add_argument("--weeks", type=int, default=4, help="window for --lens program")
     s.add_argument("--state")

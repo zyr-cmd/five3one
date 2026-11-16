@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 from .model import derive_training_maxes, detect_blocks, e1rm_history, top_e1rm
 from .parse import (canonical_names, events_for_dates, group_rows, is_done, is_not_done,
-                    load_events, main_lift_keys, session_dates)
+                    load_events, main_lift_keys, parse_date, session_dates)
 from .text import die, fmt, fmt_bbb, fmt_sets, short_note
 
 
@@ -226,10 +226,65 @@ def cmd_report(events, args):
         print(text, end="")
 
 
+def _same_figures(old, new):
+    """True when two muscle files differ at most in their generated_as_of stamp."""
+    import re
+    if not old:
+        return False
+    strip = lambda t: re.sub(r"generated_as_of=\S+", "", t).strip()
+    return strip(old) == strip(new)
+
+
+def _read_prev(args):
+    """Fill update's arguments from the stored outputs in --prev. Explicit arguments win.
+    Returns {"sessions", "last_session"} from what was found, or an error string."""
+    import os
+    import re
+    found = {}
+    if not args.prev:
+        return found
+    if not os.path.isdir(args.prev):
+        return "--prev %s is not a folder" % args.prev
+    md = os.path.join(args.prev, "progress.md")
+    if os.path.exists(md):
+        with open(md, encoding="utf-8") as fh:
+            m = re.search(r"(\d+) sessions logged", fh.read())
+        if not m:
+            return "%s has no 'sessions logged' figure; cannot check for data loss" % md
+        found["sessions"] = int(m.group(1))
+        if args.min_sessions is None:
+            args.min_sessions = found["sessions"]
+    mcsv = os.path.join(args.prev, "muscles.csv")
+    if os.path.exists(mcsv):
+        with open(mcsv, encoding="utf-8") as fh:
+            head = "".join(fh.readline() for _ in range(2))
+        last = re.search(r"last_session=(\d{4}-\d{2}-\d{2})", head)
+        rev = re.search(r"state_revision=(\w+)", head)
+        if not last or not rev:
+            return "%s line 2 lacks last_session= or state_revision=" % mcsv
+        found["last_session"] = last.group(1)
+        with open(mcsv, encoding="utf-8") as fh:
+            found["muscles_csv"] = fh.read()
+        if args.notes_since is None:
+            args.notes_since = parse_date(last.group(1))
+        if args.state_revision is None and rev.group(1) != "none":
+            args.state_revision = int(rev.group(1))
+    if args.state is None:
+        args.state = os.path.join(args.prev, "muscle-state.json")
+    if args.out_dir is None:
+        args.out_dir = args.prev
+    return found
+
+
 def cmd_update(args):
     """Validate a new export, refuse if it has fewer sessions than expected,
     then write OUT_DIR/workouts.csv and OUT_DIR/progress.md."""
     import os
+    prev = _read_prev(args)
+    if isinstance(prev, str):
+        return die(args, "REJECTED: " + prev)
+    if not args.out_dir:
+        return die(args, "update needs --out-dir or --prev")
     try:
         events, errors, warns = load_events(args.csv)
     except (OSError, UnicodeDecodeError, csv.Error) as exc:
@@ -291,7 +346,12 @@ def cmd_update(args):
     except OSError as exc:
         return die(args, "cannot write output: %s" % exc)
     dates = session_dates(events)
+    no_new = bool(prev.get("last_session")) and str(dates[-1]) == prev["last_session"] \
+        and prev.get("sessions") in (None, n)
+    unchanged = no_new and allres is not None and _same_figures(prev.get("muscles_csv"),
+                                                                 muscle_csv(allres))
     result = {"valid": True, "sessions": n, "first": str(dates[0]), "last": str(dates[-1]),
+              "unchanged": unchanged, "new_sessions": not no_new,
               "wrote": [csv_out, md_out] + wrote_muscles, "warnings": warns[:5]}
     from .muscles import UnmappedError, resolve_map, counted_sets
     from .recovery import text_next, text_unknowns
@@ -308,6 +368,13 @@ def cmd_update(args):
         print(json.dumps(result, indent=2))
     else:
         print("VALID: %d sessions, %s to %s" % (n, dates[0], dates[-1]))
+        if unchanged:
+            print("UNCHANGED: no sessions since the stored report (last %s) and the muscle "
+                  "figures match it. Nothing to save back except a state file changed this "
+                  "session." % dates[-1])
+        elif no_new:
+            print("NO NEW SESSIONS since the stored report (last %s), but the muscle figures "
+                  "differ from it (tool or tuning changed). Save back as usual." % dates[-1])
         for w in warns[:5]:
             print("  warning: " + w)
         for path in result["wrote"]:

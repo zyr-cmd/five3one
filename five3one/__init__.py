@@ -9,10 +9,15 @@ USAGE
   Install: pip install git+https://github.com/zyr-cmd/five3one@COMMIT
 
 AGENT ENTRY POINTS
-  update  --out-dir DIR [--as-of YYYY-MM-DD] [--min-sessions N]
-        One call for a new export: CSV is the NEW export. Validates it, refuses if
-        it has fewer than N sessions (pass the "sessions logged" figure from the
-        current progress.md), then writes DIR/workouts.csv and DIR/progress.md.
+  update  --prev DIR --as-of YYYY-MM-DD
+        One call for a new export: CSV is the NEW export; DIR holds the stored
+        progress.md, muscles.csv and muscle-state.json (any may be absent) and receives
+        the new outputs. From them it takes the session count (refuses an export with
+        fewer: possible data loss), the last session (lists notes after it), the state
+        revision (refuses a missing or older state file) and the state file. Prints
+        UNCHANGED when there is no new session and the muscle figures match the stored
+        ones. Explicit --out-dir, --min-sessions, --notes-since, --state-revision and
+        --state override what --prev supplies.
   status  [--as-of YYYY-MM-DD] [--stale-days N]
         Start-of-session check. Last session, days since, current cycle/week
         (taken from the most recent main-lift session), main lifts done and
@@ -46,20 +51,22 @@ DRILL-DOWN COMMANDS
 
 MUSCLE COMMANDS (design: docs/PLAN.md; evidence: docs/SOURCES.md)
   Only done sets count: ticked AND reps above zero. Listed-but-not-done sets are ignored.
-  muscles   --lens program [--weeks N] [--as-of D]   Done sets per week per muscle.
+  muscles   --html PATH                              The body diagram, all three lenses.
+            --lens program [--weeks N] [--as-of D]   Done sets per week per muscle.
             --lens session [--date D]                What one session trained.
             --lens recovery --as-of D                Last hit, recovery window, state, and the
                                                      next-session line. --as-of is required.
-            [--state PATH] [--html PATH]             --html writes the body diagram.
+            [--state PATH]                           --date is only for --lens session.
   explain   --muscle M [--as-of D] [--state PATH]    Sets, parameters and feedback behind
                                                      one muscle's figures.
   unknowns  [--as-of D] [--notes-since D] [--state PATH]
             What the tool does not know about recent sessions (did a muscle limit a lift,
             reps in reserve, notes to read), each with what it changes and the command
             that records it. Ask the owner what is worth asking; none are required.
-  update    also takes --state PATH, --state-revision N (the state_revision in the stored
-            muscles.csv; refuses if the state file is missing or older) and --notes-since D.
-            It writes muscles.csv and muscles.html beside progress.md and prints unknowns.
+            Not asked: reps in reserve where a set fell short of an earlier set's reps at
+            the same or a heavier weight (e.g. 70x12 70x12 70x10). That is read as at or
+            near failure (rir.0_1); a stated answer overrides it. explain marks it inferred.
+  update    writes muscles.csv and muscles.html beside progress.md and prints unknowns.
   An exercise with done sets and no muscle mapping stops the muscle commands with the
   exact map-set command to run. Nothing is guessed.
 

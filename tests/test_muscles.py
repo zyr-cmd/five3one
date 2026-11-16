@@ -360,7 +360,9 @@ class StateAndCommandTests(Base):
     def test_unknowns_rank_and_close(self):
         P, emap = self.P, self.emap
         items = rc.unknowns(self.ev, emap, P, None, date(2026, 1, 3), state_path=self.state)
-        self.assertEqual([u["type"] for u in items], ["limited", "effort", "effort"])
+        # the row fell short (50x12 50x12 50x10), so it is read as near failure, not asked about
+        self.assertEqual([u["id"] for u in items],
+                         ["limited:2026-01-03", "rir:2026-01-03:militarypress"])
         self.assertEqual(items[0]["id"], "limited:2026-01-03")
         # notes are listed for sessions after --notes-since
         items = rc.unknowns(self.ev, emap, P, None, date(2026, 1, 3), date(2025, 12, 31))
@@ -375,9 +377,8 @@ class StateAndCommandTests(Base):
         self.assertEqual([u["type"] for u in late], ["note"])
         s = st.empty_state()
         st.add_feedback(s, "limited", "2026-01-03", "all", 0, "2026-01-03")
-        st.dismiss(s, "rir:2026-01-03:militarypress")
         left = rc.unknowns(self.ev, emap, P, s, date(2026, 1, 3))
-        self.assertEqual([u["id"] for u in left], ["rir:2026-01-03:chestsupportedrow"])
+        self.assertEqual([u["id"] for u in left], ["rir:2026-01-03:militarypress"])
 
     def test_explain_shows_sets_and_parameters(self):
         code, out, _ = run_cli(self.csv, "explain", "--muscle", "quads", "--as-of", "2026-01-03")
@@ -387,12 +388,43 @@ class StateAndCommandTests(Base):
 
 
 class UpdateIntegrationTests(Base):
+    def test_prev_supplies_the_stored_values(self):
+        d = os.path.join(self.dir, "proj")
+        os.makedirs(d)
+        code, out, err = run_cli(self.csv, "update", "--as-of", "2026-01-03", "--prev", d)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("UNCHANGED", out)  # nothing stored yet
+        code, out, _ = run_cli(self.csv, "update", "--as-of", "2026-01-04", "--prev", d)
+        self.assertIn("UNCHANGED", out)
+        # a new session: notes after the stored last session are listed, no UNCHANGED
+        newer = write_csv(self.dir, ROWS + [
+            "2026-01-05,Squat,Main,true;true;true,5;5;5,60.0;70.0;80.0,1,2,felt heavy"], "n.csv")
+        code, out, _ = run_cli(newer, "update", "--as-of", "2026-01-05", "--prev", d)
+        self.assertEqual(code, 0)
+        self.assertNotIn("UNCHANGED", out)
+        self.assertNotIn("NO NEW SESSIONS", out)
+        self.assertIn("felt heavy", out)
+        self.assertNotIn("quads were toast", out)  # before the stored last session
+        # an export with fewer sessions than stored is refused
+        code, _, err = run_cli(self.csv, "update", "--as-of", "2026-01-05", "--prev", d)
+        self.assertNotEqual(code, 0)
+        self.assertIn("expected at least 3", err + _)
+        # a stored state revision with the state file gone is refused
+        path = os.path.join(d, "muscles.csv")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read().replace("state_revision=none", "state_revision=2")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        code, out, err = run_cli(newer, "update", "--as-of", "2026-01-05", "--prev", d)
+        self.assertNotEqual(code, 0)
+        self.assertIn("state revision 2", out + err)
+
     def test_update_writes_muscle_files_and_guards_state(self):
         out_dir = os.path.join(self.dir, "stage")
         code, out, _ = run_cli(self.csv, "update", "--as-of", "2026-01-03", "--out-dir", out_dir)
         self.assertEqual(code, 0)
         self.assertIn("state: none", out)
-        self.assertIn("Unknowns (3)", out)
+        self.assertIn("Unknowns (2)", out)
         with open(os.path.join(out_dir, "muscles.csv"), encoding="utf-8") as fh:
             lines = fh.read().splitlines()
         self.assertIn("last_session=2026-01-03", lines[1])
@@ -425,6 +457,45 @@ class UpdateIntegrationTests(Base):
         self.assertIn("MUSCLE OUTPUT WITHHELD", out)
         self.assertFalse(os.path.exists(os.path.join(out_dir, "muscles.csv")))
         self.assertTrue(os.path.exists(os.path.join(out_dir, "progress.md")))
+
+
+class ShortfallTests(Base):
+    def test_rep_shortfall_reads_as_near_failure(self):
+        rows, _ = mu.counted_sets(self.ev, self.emap)
+        short = rc.shortfalls(rows)
+        self.assertIn(("2026-01-03", "chestsupportedrow"), short)
+        self.assertNotIn(("2026-01-03", "militarypress"), short)  # 25x10 25x10: no shortfall
+        doses = rc.daily_doses(rows, self.P)
+        row_sets = [x for x in doses["lats"][date(2026, 1, 3)]["sets"]
+                    if x["exercise"] == "Chest-Supported Row"]
+        self.assertTrue(all(x["stimulus_param"] == "rir.0_1" and x["effort"].startswith("inferred")
+                            for x in row_sets))
+        # stated reps in reserve beat the inference
+        s = st.empty_state()
+        st.add_feedback(s, "rir", "2026-01-03", "Chest-Supported Row", 3, "2026-01-03")
+        stated = [x for x in rc.daily_doses(rows, self.P, s)["lats"][date(2026, 1, 3)]["sets"]
+                  if x["exercise"] == "Chest-Supported Row"]
+        self.assertTrue(all(x["stimulus_param"] == "rir.2_3" for x in stated))
+
+    def test_heavier_set_with_fewer_reps_is_not_a_shortfall(self):
+        ev = f.load_events(write_csv(self.dir, [
+            "2026-01-01,Squat,Main,true;true;true,5;5;5,60.0;70.0;80.0,1,1,",
+            "2026-01-01,Row,,true;true;true,12;12;10,47.6;47.6;54.3,1,1,"], "h.csv"))[0]
+        rows, _ = mu.counted_sets(ev, self.emap)
+        self.assertEqual(rc.shortfalls(rows), {})
+
+
+class MusclesCliTests(Base):
+    def test_html_alone_and_date_misuse(self):
+        out_html = os.path.join(self.dir, "m.html")
+        code, out, _ = run_cli(self.csv, "muscles", "--html", out_html)
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(out_html))
+        code, out, err = run_cli(self.csv, "muscles", "--lens", "recovery", "--date", "2026-01-03")
+        self.assertNotEqual(code, 0)
+        self.assertIn("--as-of", out + err)
+        code, _, _ = run_cli(self.csv, "muscles")
+        self.assertNotEqual(code, 0)
 
 
 class RenderTests(Base):
